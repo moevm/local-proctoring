@@ -1,5 +1,119 @@
 import { logClientAction } from "./logger.js";
 
+export const getAvailableDiskSpace = async () => {
+    const estimate = await navigator.storage.estimate();
+    const freeSpace = estimate.quota - estimate.usage;
+    logClientAction({ action: "Check available disk space", freeSpace });
+    return freeSpace;
+};
+
+export const getFormattedDateString = (date) => {
+    logClientAction({ action: "Generate human-readable date string" });
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+
+    return `${hours}:${minutes}:${seconds}, ${day}.${month}.${year}`;
+};
+
+export const getDifferenceInTime = (date1, date2) => {
+    const diff = Math.abs(Math.floor(date2.getTime() / 1000) - Math.floor(date1.getTime() / 1000)); // ms
+    const totalSeconds = Math.floor(diff);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    // Для удобного представления
+    const formattedHours = String(hours).padStart(2, '0');
+    const formattedMinutes = String(minutes).padStart(2, '0');
+    const formattedSeconds = String(seconds).padStart(2, '0');
+
+    logClientAction({ action: "Calculate difference in time" });
+    return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
+};
+
+export function generateObjectId() {
+    const bytes = new Uint8Array(12);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, timestamp, false);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      crypto.getRandomValues(bytes.subarray(4));
+    } else {
+      for (let i = 4; i < 12; i++) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    logClientAction({ action: "Generate ObjectId" });
+
+    return Array.from(bytes)
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
+}
+
+export function getBrowserFingerprint() {
+    const fingerprint = {
+        browserVersion: navigator.userAgent.match(/Chrome\/([0-9.]+)/)?.[1] || 'unknown',
+        userAgent: navigator.userAgent,
+        language: navigator.language || navigator.userLanguage || 'unknown',
+        cpuCores: navigator.hardwareConcurrency || 'unknown',
+        screenResolution: `${window.screen.width}x${window.screen.height}`,
+        availableScreenResolution: `${window.screen.availWidth}x${window.screen.availHeight}`,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
+        timestamp: new Date().toISOString(),
+        cookiesEnabled: navigator.cookieEnabled ? 'yes' : 'no',
+        windowSize: `${window.innerWidth}x${window.innerHeight}`,
+        doNotTrack: navigator.doNotTrack || window.doNotTrack || 'unknown'
+    };
+
+    logClientAction({ action: "Get browser fingerprint", fingerprint});
+
+    return fingerprint;
+}
+
+export async function requestClearLogs() {
+    await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: "clearLogs" }, (response) => {
+            if (response.success) {
+                //ЗДЕСЬ НЕ НАДО ЛОГГИРОВАТЬ
+                //logClientAction({ action: "Clear logs" });
+                console.log("Логи очищены перед завершением");
+            } else {
+                //logClientAction({ action: "Error while clearing logs", error: response.error });
+                console.error("Ошибка очистки логов:", response.error);
+            }
+            resolve();
+        });
+    });
+}
+
+export function saveBlobToFile(blob, name) {
+    try {
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = name;
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(url);
+
+        console.log(`Файл ${name} сохранен`);
+        logClientAction({ action: "Save file", fileName: name });
+    } catch (error) {
+        console.error(`Ошибка при сохранении файла ${name}:`, error);
+        logClientAction({ action: "Fail to save file", fileName: name, error: error.message });
+    }
+}
+
 export async function deleteFilesFromTempList() {
     const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
     if (tempFiles.length > 0) {

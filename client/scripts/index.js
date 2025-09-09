@@ -1,5 +1,5 @@
-import { buttonsStatesSave, deleteFiles, getCurrentDateString, showModalNotify } from "./common.js";
-import { logClientAction, checkAndCleanLogs, clearLogs } from "./logger.js";
+import { buttonsStatesSave, deleteFiles, getCurrentDateString, showModalNotify, saveBlobToFile } from "./common.js";
+import { logClientAction, checkAndCleanLogs, clearLogs, prepareLogs } from "./logger.js";
 
 const noPatronymicCheckbox = document.querySelector('#no_patronymic_checkbox');
 const permissionsStatus = document.querySelector('#permissions-status');
@@ -397,7 +397,7 @@ buttonElements.permissions.addEventListener('click', async () => {
     logClientAction({ action: "Send message", messageType: "getPermissions" });
 
     invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
-    if (server_connection && !invalidStop && bState == "failedUpload") {
+    if (server_connection && !invalidStop && bState == "failedUpload") { // ?
         inputElements.link.value = "";
         saveInputValues();
         logClientAction("Clear link field");
@@ -413,7 +413,8 @@ buttonElements.upload.addEventListener('click', async () => {
 	if (!files) {
 		buttonsStatesSave('needPermissions');
 		updateButtonsStates();
-	}
+        // ? Возможно требуется лог об ошибке
+	} // ? Зачем мы идем дальше
     logClientAction({ action: "Start uploading video" });
 	uploadVideo()
     .then(() => {
@@ -567,7 +568,7 @@ async function uploadVideo() {
             return;
         }
 
-        const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+        const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || []; // ? Может стоит передавать в функцию
         if (!files.length) {
             logClientAction("Ошибка при поиске записей");
             throw new Error(`Ошибка при поиске записей`);
@@ -591,33 +592,13 @@ async function uploadVideo() {
         //logClientAction({ action: "Prepare upload payload", sessionId: sessionId, fileNames: [combinedFileName, cameraFileName] });
 
         if (extension_logs) {
-            let logsToSend;
-            if (typeof extension_logs === "string") {
-                try {
-                    logsToSend = JSON.parse(extension_logs);
-                } catch (e) {
-                    console.error("Ошибка парсинга логов:", e);
-                    logsToSend = [{ error: "Invalid logs", raw_data: extension_logs }];
-                    logClientAction({ action: "Parse logs error", error: e.message });
-                }
-            } else {
-                logsToSend = extension_logs;
-            }
-
-            const logsBlob = new Blob([JSON.stringify(logsToSend, null, 2)], { type: 'application/json' });
+            let logs = prepareLogs(extension_logs);
+            const logsBlob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
             formData.append("logs", logsBlob, "extension_logs.json");
 
-            const logsFileName = `extension_logs_${sessionId}_${getCurrentDateString(new Date())}.json`;
-            const url = URL.createObjectURL(logsBlob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = logsFileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            saveBlobToFile(logsBlob, `extension_logs_${sessionId}_${getCurrentDateString(new Date())}.json`);
 
-            logClientAction({ action: "Download logs file", fileName: logsFileName });
+            logClientAction({ action: "Download logs file", fileName: fileName });
         }
 
         logClientAction({ action: "Send upload request", sessionId: sessionId, messageType: "upload_video" });
