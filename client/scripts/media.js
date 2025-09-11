@@ -1,5 +1,5 @@
 import { showModalNotify, waitForNotificationSuppression, getBrowserFingerprint, generateObjectId, requestClearLogs, getDifferenceInTime, getFormattedDateString, getAvailableDiskSpace, saveBlobToFile } from './common.js';
-import { buttonsStatesSave, deleteFiles, getCurrentDateString } from "./common.js";
+import { deleteFiles, getCurrentDateString } from "./common.js";
 import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './logger.js';
 
 var streams = {
@@ -35,6 +35,9 @@ var endTime = undefined;
 var server_connection = undefined;
 var notifications_flag = true;
 var invalidStop = undefined;
+var bState = undefined;
+
+var sessionId = undefined;
 
 var metadata = {
     screen: {
@@ -111,7 +114,7 @@ function updateMicFill(level) {
 
 async function sendButtonsStates(state) {
     if (state === 'readyToUpload' && !server_connection) {
-        state = 'needPermissions';
+        state = 'needPermissions'; // ?
         logClientAction({ action: "Update buttons states due to missing server connection" });
     }
     if (await checkOpenedPopup()) chrome.runtime.sendMessage({action: 'updateButtonStates', state: state}, (response) => {
@@ -131,9 +134,17 @@ async function sendButtonsStates(state) {
     }
 }
 
-const updateInvalidStopValue = (flag) => { // ? Дублируется в index.js
+async function updateInvalidStopValue(flag) {
     invalidStop = flag;
-    chrome.storage.local.set({ 'invalidStop': flag });
+    await chrome.storage.local.set({ 'invalidStop': flag });
+}
+
+async function buttonsStatesSave(state) {
+    bState = state;
+    localStorage.setItem("bState", bState); // для восстановления данных
+	await chrome.storage.local.set({'bState': state});
+
+    logClientAction({ action: "Save buttons states"});
 }
 
 chrome.storage.onChanged.addListener((changes) => {
@@ -382,16 +393,31 @@ async function getMediaDevices() {
                         audioBitsPerSecond: 128_000,
                         videoBitsPerSecond: 2_500_000,
                     });
+
+                    // recorders.combined = new MediaRecorder(streams.combined, {
+                    //     mimeType: 'video/webm; codecs="vp9, opus"',
+                    //     audioBitsPerSecond: 128_000,
+                    //     videoBitsPerSecond: 2_500_000,
+                    // });
+
                     logClientAction({ action: "Create combined recorder" });
                     
                     recorders.camera = new MediaRecorder(streams.camera, { 
                         mimeType: 'video/mp4; codecs="avc1.64001E"',
                         videoBitsPerSecond: 700_000
                     });
+
+                    // recorders.camera = new MediaRecorder(streams.combined, {
+                    //     mimeType: 'video/webm; codecs="vp9"',
+                    //     videoBitsPerSecond: 700_000,
+                    // });
+
                     logClientAction({ action: "Create camera recorder" });
 
+                    // записывать время последней записи
                     recorders.combined.ondataavailable = async (event) => {
                         if (event.data.size > 0) {
+                            console.log(event);
                             const combinedWritableStream =  await combinedFileHandle.createWritable({ keepExistingData: true });
 
                             const file = await combinedFileHandle.getFile();
@@ -497,22 +523,6 @@ async function cleanup() {
     logClientAction({ action: "Complete cleanup" });
 }
 
-async function handleFileSave(handle, name) {
-    try {
-        const file = await handle.getFile();
-        const url = URL.createObjectURL(file);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = name;
-        link.click();
-        console.log(`Файл ${name} сохранен`);
-        logClientAction({ action: "Save file", fileName: name });
-    } catch (error) {
-        console.error(`Ошибка при сохранении файла ${name}:`, error);
-        logClientAction({ action: "Fail to save file", fileName: name, error: error.message });
-    }
-}
-
 async function addFileToTempList(fileName) {
     const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
     if (!tempFiles.includes(fileName)) {
@@ -538,59 +548,57 @@ const beforeUnloadHandler = (event) => {
 window.addEventListener('beforeunload', beforeUnloadHandler);
 
 window.addEventListener('unload', () => {
-    // ? Обработать invalidStop
-    logClientAction({ action: "Tab media.html unload - save state as needPermissions" });
-    let bState;
-    chrome.storage.local.get('bState').then(result => {
-        bState = result.bState;
-        logClientAction({"action": "Get bState when media load", bState});
-
-    }).catch(error => {
-        logClientAction({"action": "Error getting bState when media load", "error": error.message});
-        logClientAction({ action: "Tab media.html unload - save state as needPermissions" });
-        // buttonsStatesSave('needPermissions');
-    });
     if (recorders.camera || recorders.screen) {
         if (bState == 'readyUpload' || bState == 'failedUpload') {
             logClientAction({ action: `Tab media.html unload - but current state is ${bState}` });
         }
-        else {
-            logClientAction({ action: "Tab media.html unload - save state as needPermissions" });
-            // buttonsStatesSave('needPermissions');
-        }
     }
-    // if (bState == 'readyToRecord' || bState == 'recording') {
-    //     buttonsStatesSave('needPermissions');
-    // }
+    else {
+        buttonsStatesSave('needPermissions');
+    }
+
+    if (bState == 'readyToRecord') {
+        buttonsStatesSave('needPermissions');
+    }
+
+    logClientAction({ action: `Tab media.html unload - current state is ${bState}` });
 })
 
 window.addEventListener('load', async () => {
     logClientAction({ action: "Load media.html tab" });
-    Object.values(streams).some(async (stream) => {
-        let bState;
-        chrome.storage.local.get('bState').then(result => {
-            bState = result.bState;
-            console.log('bState', bState);
-            logClientAction({"action": "Get bState when media load", bState});
-            if (bState == 'readyUpload' || bState == 'failedUpload') {
-                logClientAction({ action: `Tab media.html load - but current state is ${bState}` });
-            }
-            else if (stream === null) {
-                logClientAction({ action: "Some stream is null - request permissions. Tab media.html load - save state as needPermissions" });
-                buttonsStatesSave('needPermissions');
-                return true;
-            }
-        }).catch(error => {
-            logClientAction({"action": "Error getting bState when media load", "error": error.message});
-            if (stream === null) {
-                logClientAction({ action: "Some stream is null - request permissions. Tab media.html load - save state as needPermissions" });
-                buttonsStatesSave('needPermissions');
-                return true;
-            }
+
+    await buttonsStatesSave(localStorage.getItem("bState"));
+    await updateInvalidStopValue(bState === "recording");
+
+    console.log("load_window invalidStopValue: ", invalidStop);
+
+    if (bState == 'readyUpload' || bState == 'failedUpload') {
+        logClientAction({ action: `Tab media.html load - but current state is ${bState}` });
+    }
+    else {
+        await buttonsStatesSave('needPermissions');
+    }
+
+    logClientAction({ action: `Tab media.html load - current state is ${bState}` });
+
+    if (invalidStop) { // по сути мы скачиваем файлы для дебага, пользователю они не сильно нужны
+        // если нужны -> показать сообщение (найдены файлы: восстановить)
+        const rootDirectory = await navigator.storage.getDirectory();
+        const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+
+        tempFiles.forEach(async fileName => {
+            const fileFandle = await rootDirectory.getFileHandle(fileName);
+            const fileBlob = await fileFandle.getFile();
+            saveBlobToFile(fileBlob, fileName);
+
+            logClientAction({ action: "Saved temp file", fileName: fileName });
         });
-    });
-    invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
-    console.log("load_window", invalidStop);
+
+        logClientAction({ action: "Save temp files", fileName: combinedFileName });
+        console.log(tempFiles);
+
+        await updateInvalidStopValue(false);
+    }
 });
 
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
@@ -605,9 +613,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         }
     }
     else if (message.action === 'getPermissionsMedia') {
-        if (!invalidStop) {
-            await deleteFiles();
-        }
         logClientAction({ action: "Receive message", messageType: "getPermissionsMedia" });
         server_connection = (await chrome.storage.local.get('server_connection'))['server_connection'];
         getMediaDevices()
@@ -632,9 +637,10 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         });
     }
     else if (message.action === 'startRecording') {
-        updateInvalidStopValue(
-            (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false
-        );
+        // await updateInvalidStopValue(
+        //     (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false
+        // );
+        // console.log("update: ", invalidStop);
         if (!invalidStop) await checkAndCleanLogs();
         logClientAction({ action: "Receive message", messageType: "startRecording" });
 
@@ -670,7 +676,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 logClientAction({ action: "Generate session ID locally", sessionId });
             }
         }
-        updateInvalidStopValue(false);
+        // updateInvalidStopValue(false);
 
         startRecord()
         .then(async () => {
@@ -829,7 +835,7 @@ async function stopRecord() {
 
         cleanup();
         if (!server_connection) {
-            await deleteFiles();
+            // ?
         }
 
         await showModalNotify(
@@ -882,17 +888,16 @@ async function startRecord() {
     combinedFileName = `proctoring_screen_${startRecordTime}.mp4`;
     cameraFileName = `proctoring_camera_${startRecordTime}.mp4`;
 
+    await addFileToTempList(combinedFileName);
+    await addFileToTempList(cameraFileName);
+
     try {
         combinedFileHandle = await rootDirectory.getFileHandle(combinedFileName, {create: true});
-        // combinedWritableStream = await combinedFileHandle.createWritable();
         logClientAction({ action: "Create file handle", fileType: "screen", fileName: combinedFileName });
 
         cameraFileHandle = await rootDirectory.getFileHandle(cameraFileName, {create: true});
-        // cameraWritableStream = await cameraFileHandle.createWritable();
         logClientAction({ action: "Create file handle", fileType: "camera", fileName: cameraFileName });
 
-        await addFileToTempList(combinedFileName);
-        await addFileToTempList(cameraFileName);
         logClientAction('Files added to temp list');
 
         chrome.storage.local.set({

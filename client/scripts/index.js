@@ -407,6 +407,7 @@ buttonElements.permissions.addEventListener('click', async () => {
 });
 
 buttonElements.upload.addEventListener('click', async () => {
+    console.log("upload button click");
     logClientAction({ action: "Click upload button" });
     if (!server_connection) return;
 	const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'];
@@ -568,7 +569,8 @@ async function uploadVideo() {
             return;
         }
 
-        const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || []; // ? Может стоит передавать в функцию
+        const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+        console.log(files);
         if (!files.length) {
             logClientAction("Ошибка при поиске записей");
             throw new Error(`Ошибка при поиске записей`);
@@ -596,9 +598,10 @@ async function uploadVideo() {
             const logsBlob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
             formData.append("logs", logsBlob, "extension_logs.json");
 
-            saveBlobToFile(logsBlob, `extension_logs_${sessionId}_${getCurrentDateString(new Date())}.json`);
+            const logsFileName = `extension_logs_${sessionId}_${getCurrentDateString(new Date())}.json`;
+            saveBlobToFile(logsBlob, logsFileName);
 
-            logClientAction({ action: "Download logs file", fileName: fileName });
+            logClientAction({ action: "Download logs file", fileName: logsFileName });
         }
 
         logClientAction({ action: "Send upload request", sessionId: sessionId, messageType: "upload_video" });
