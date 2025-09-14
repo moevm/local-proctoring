@@ -1,5 +1,5 @@
 import { showModalNotify, waitForNotificationSuppression, getBrowserFingerprint, generateObjectId, requestClearLogs, getDifferenceInTime, getFormattedDateString, getAvailableDiskSpace, saveBlobToFile } from './common.js';
-import { deleteFiles, getCurrentDateString } from "./common.js";
+import { getCurrentDateString, setReadyToUploadContainer, parseDateString, deleteFiles } from "./common.js";
 import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './logger.js';
 
 var streams = {
@@ -13,6 +13,8 @@ var recorders = {
     combined: null,
     camera: null
 };
+
+var readyToUploadContainer = document.querySelector('.ready-to-upload-container');
 
 var combinedPreview = document.querySelector('.combined__preview');
 var cameraPreview = document.querySelector('.camera__preview');
@@ -37,26 +39,81 @@ var notifications_flag = true;
 var invalidStop = undefined;
 var bState = undefined;
 
-var sessionId = undefined;
+async function need_init() {
+    console.log((await chrome.storage.local.get("session_status"))["session_status"]);
+    const session_status = (await chrome.storage.local.get("session_status"))["session_status"] || "need_init";
+    return session_status === "need_init";
+}
 
-var metadata = {
-    screen: {
-        session_client_start: undefined,
-        session_client_end: undefined,
-        session_client_duration: undefined,
-        session_client_mime: undefined,
-        session_client_resolution: undefined,
-        session_client_size: undefined // MB
-    },
-    camera: {
-        session_client_start: undefined,
-        session_client_end: undefined,
-        session_client_duration: undefined,
-        session_client_mime: undefined,
-        session_client_resolution: undefined,
-        session_client_size: undefined // MB
+class Metadata {
+    constructor() {
+        this.metadata = this._templateMeta();
     }
-};
+
+    _templateMeta() {
+        return {
+            session_client_start: undefined,
+            session_client_end: undefined,
+            session_client_duration: undefined,
+            screen: {
+                session_client_mime: undefined,
+                session_client_resolution: undefined,
+                session_client_size: undefined // MB
+            },
+            camera: {
+                session_client_mime: undefined,
+                session_client_resolution: undefined,
+                session_client_size: undefined // MB
+            },
+            recording_sessions: [],
+        };
+    }
+
+    async useSaved() {
+        this.metadata = (await chrome.storage.local.get("metadata"))["metadata"] || this._templateMeta();
+    }
+
+    setMetadatasRecordOn(startTime, streams, recorders) {
+        if (this.metadata.recording_sessions.length == 0) {
+            this.metadata.session_client_start = getCurrentDateString(startTime);
+
+            this.metadata.screen.session_client_mime = recorders.combined.mimeType;
+            const [screenVideoTrack] = streams.screen.getVideoTracks();
+            const screenSettings = screenVideoTrack.getSettings();
+            this.metadata.screen.session_client_resolution = `${screenSettings.width}×${screenSettings.height}`;
+
+            this.metadata.camera.session_client_mime = recorders.camera.mimeType;
+            const [cameraVideoTrack] = streams.camera.getVideoTracks();
+            const cameraSettings = cameraVideoTrack.getSettings();
+            this.metadata.camera.session_client_resolution = `${cameraSettings.width}×${cameraSettings.height}`;
+        }
+
+        logClientAction({ action: "Set metadata record on" });
+    };
+
+    async setMetadatasRecordOff(endTime) {
+        this.metadata.session_client_end = getCurrentDateString(endTime);
+        startTime = parseDateString(this.metadata.session_client_start);
+        this.metadata.session_client_duration = getDifferenceInTime(endTime, startTime);
+
+        const screenFile = await combinedFileHandle.getFile();
+        this.metadata.screen.session_client_size = (screenFile.size / 1000000).toFixed(3);
+        const cameraFile = await cameraFileHandle.getFile();
+        this.metadata.camera.session_client_size = (cameraFile.size / 1000000).toFixed(3);
+
+        logClientAction({ action: "Set metadata record off" });
+    };
+
+    appendRecordingSession(recordingStart, recordingEnd) {
+        this.metadata.recording_sessions.push([getCurrentDateString(new Date(recordingStart)), getCurrentDateString(new Date(recordingEnd))]);
+    }
+
+    async save() {
+        await chrome.storage.local.set({"metadata": this.metadata});
+    }
+}
+
+var metadata = undefined;
 
 combinedPreview.addEventListener('contextmenu', e => e.preventDefault(), {capture: true});
 
@@ -68,32 +125,6 @@ const stopStreams = () => {
         }
     });
     logClientAction({ action: "Stop streams" });
-};
-
-const setMetadatasRecordOn = () => {
-    metadata.screen.session_client_start = getCurrentDateString(startTime);
-    metadata.screen.session_client_mime = recorders.combined.mimeType;
-    const [screenVideoTrack] = streams.screen.getVideoTracks();
-    const screenSettings = screenVideoTrack.getSettings();
-    metadata.screen.session_client_resolution = `${screenSettings.width}×${screenSettings.height}`;
-    metadata.camera.session_client_start = getCurrentDateString(startTime);
-    metadata.camera.session_client_mime = recorders.camera.mimeType;
-    const [cameraVideoTrack] = streams.camera.getVideoTracks();
-    const cameraSettings = cameraVideoTrack.getSettings();
-    metadata.camera.session_client_resolution = `${cameraSettings.width}×${cameraSettings.height}`;
-    logClientAction({ action: "Set metadata record on" });
-};
-
-const setMetadatasRecordOff = async () => {
-    metadata.screen.session_client_end = getCurrentDateString(endTime);
-    metadata.screen.session_client_duration = getDifferenceInTime(endTime, startTime);
-    metadata.camera.session_client_end = getCurrentDateString(endTime);
-    metadata.camera.session_client_duration = getDifferenceInTime(endTime, startTime);
-    const screenFile = await combinedFileHandle.getFile();
-    metadata.screen.session_client_size = (screenFile.size / 1000000).toFixed(3);
-    const cameraFile = await cameraFileHandle.getFile();
-    metadata.camera.session_client_size = (cameraFile.size / 1000000).toFixed(3);
-    logClientAction({ action: "Set metadata record off" });
 };
 
 async function checkOpenedPopup() {
@@ -321,7 +352,7 @@ async function getMediaDevices() {
                             stopDuration(startTime);
                             await sendButtonsStates('needPermissions');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к камере потерян!");
-                            updateInvalidStopValue(true);
+                            // updateInvalidStopValue(true);
                             stopRecord();
                         }
                     };
@@ -341,7 +372,7 @@ async function getMediaDevices() {
                             stopDuration(startTime);
                             await sendButtonsStates('needPermissions');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения в расширении во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к экрану потерян!");
-                            updateInvalidStopValue(true);
+                            // updateInvalidStopValue(true);
                             stopRecord();
                         }
                     };
@@ -360,7 +391,7 @@ async function getMediaDevices() {
                             stopDuration(startTime);
                             await sendButtonsStates('needPermissions');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения в расширении во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к микрофону потерян!");
-                            updateInvalidStopValue(true);
+                            // updateInvalidStopValue(true);
                             stopRecord();
                         }
                     };
@@ -394,12 +425,6 @@ async function getMediaDevices() {
                         videoBitsPerSecond: 2_500_000,
                     });
 
-                    // recorders.combined = new MediaRecorder(streams.combined, {
-                    //     mimeType: 'video/webm; codecs="vp9, opus"',
-                    //     audioBitsPerSecond: 128_000,
-                    //     videoBitsPerSecond: 2_500_000,
-                    // });
-
                     logClientAction({ action: "Create combined recorder" });
                     
                     recorders.camera = new MediaRecorder(streams.camera, { 
@@ -407,17 +432,11 @@ async function getMediaDevices() {
                         videoBitsPerSecond: 700_000
                     });
 
-                    // recorders.camera = new MediaRecorder(streams.combined, {
-                    //     mimeType: 'video/webm; codecs="vp9"',
-                    //     videoBitsPerSecond: 700_000,
-                    // });
-
                     logClientAction({ action: "Create camera recorder" });
 
                     // записывать время последней записи
                     recorders.combined.ondataavailable = async (event) => {
                         if (event.data.size > 0) {
-                            console.log(event);
                             const combinedWritableStream =  await combinedFileHandle.createWritable({ keepExistingData: true });
 
                             const file = await combinedFileHandle.getFile();
@@ -432,6 +451,8 @@ async function getMediaDevices() {
                             });
 
                             await combinedWritableStream.close();
+
+                            await chrome.storage.local.set({"recording_end": (new Date()).toISOString()});
                         }
                     };
 
@@ -451,6 +472,8 @@ async function getMediaDevices() {
                             });
 
                             await cameraWritableStream.close();
+
+                            await chrome.storage.local.set({"recording_end": (new Date()).toISOString()});
                         }
                     };
 
@@ -565,36 +588,46 @@ window.addEventListener('unload', () => {
 })
 
 window.addEventListener('load', async () => {
+    console.log(await need_init());
     logClientAction({ action: "Load media.html tab" });
 
     await buttonsStatesSave(localStorage.getItem("bState"));
     await updateInvalidStopValue(bState === "recording");
 
-    console.log("load_window invalidStopValue: ", invalidStop);
-
-    if (bState == 'readyUpload' || bState == 'failedUpload') {
-        logClientAction({ action: `Tab media.html load - but current state is ${bState}` });
-    }
-    else {
+    if ((bState == 'readyToRecord' || bState == 'needPermissions') && (await need_init())) {
         await buttonsStatesSave('needPermissions');
     }
+    else {
+        await buttonsStatesSave('failedUpload');
+    }
+
+    await sendButtonsStates(bState);
 
     logClientAction({ action: `Tab media.html load - current state is ${bState}` });
 
+    const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+    setReadyToUploadContainer(readyToUploadContainer, tempFiles);
+
     if (invalidStop) { // по сути мы скачиваем файлы для дебага, пользователю они не сильно нужны
         // если нужны -> показать сообщение (найдены файлы: восстановить)
-        const rootDirectory = await navigator.storage.getDirectory();
-        const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+        metadata = new Metadata();
+        await metadata.useSaved();
+        const recordingStart = (await chrome.storage.local.get("recording_start"))["recording_start"];
+        const recordingEnd = (await chrome.storage.local.get("recording_end"))["recording_end"];
+        metadata.appendRecordingSession(recordingStart, recordingEnd);
+        metadata.save();
 
-        tempFiles.forEach(async fileName => {
-            const fileFandle = await rootDirectory.getFileHandle(fileName);
-            const fileBlob = await fileFandle.getFile();
-            saveBlobToFile(fileBlob, fileName);
+        // const rootDirectory = await navigator.storage.getDirectory();
 
-            logClientAction({ action: "Saved temp file", fileName: fileName });
-        });
+        // tempFiles.forEach(async fileName => {
+        //     const fileFandle = await rootDirectory.getFileHandle(fileName);
+        //     const fileBlob = await fileFandle.getFile();
+        //     saveBlobToFile(fileBlob, fileName);
 
-        logClientAction({ action: "Save temp files", fileName: combinedFileName });
+        //     logClientAction({ action: "Saved temp file", fileName: fileName });
+        // });
+
+        console.log("invalid_stop:", metadata.metadata);
         console.log(tempFiles);
 
         await updateInvalidStopValue(false);
@@ -607,8 +640,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         if (recorders.combined || recorders.camera) {
             window.removeEventListener('beforeunload', beforeUnloadHandler);
             stopRecord();
-            await setMetadatasRecordOff();
-            chrome.storage.local.set({'metadata': JSON.stringify(metadata)});
             await sendButtonsStates('readyToUpload');
         }
     }
@@ -637,11 +668,8 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         });
     }
     else if (message.action === 'startRecording') {
-        // await updateInvalidStopValue(
-        //     (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false
-        // );
-        // console.log("update: ", invalidStop);
-        if (!invalidStop) await checkAndCleanLogs();
+        if (await need_init()) await checkAndCleanLogs();
+
         logClientAction({ action: "Receive message", messageType: "startRecording" });
 
         const formData = new FormData();
@@ -663,11 +691,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             action: "Receive startRecording formData",
             formData: formDataToObject(formData),
         });
-        if (!invalidStop) {
+
+        if (await need_init()) {
             if (server_connection) {
                 await initSession(formData);
             } else {
-                getBrowserFingerprint()
+                getBrowserFingerprint();
 
                 await chrome.storage.local.set({ 'lastRecordTime': new Date().toISOString() });
 
@@ -676,7 +705,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 logClientAction({ action: "Generate session ID locally", sessionId });
             }
         }
-        // updateInvalidStopValue(false);
 
         startRecord()
         .then(async () => {
@@ -770,6 +798,7 @@ function stopDuration(startTime) {
 }
 
 async function stopRecord() {
+    // TODO
     if (!invalidStop) stopDuration(startTime);
     chrome.runtime.sendMessage({ type: 'screenCaptureStatus', active: false });
   
@@ -778,9 +807,9 @@ async function stopRecord() {
     hideMutePreviews();
     updatePreviewButton();
 
-    setMetadatasRecordOn();
     endTime = new Date();
-    const stopPromises = [];
+
+    await metadata.setMetadatasRecordOff(endTime);
 
     let combinedFileSize = 0;
     let cameraFileSize = 0;
@@ -810,12 +839,17 @@ async function stopRecord() {
             logClientAction({ action: "Save recorded file", fileType: "camera", fileName: cameraFileName });
         }
 
-        if (invalidStop) {
-            // До этого уже вызывается функция
-            await sendButtonsStates('needPermissions');
-        } else {
-            await sendButtonsStates('readyToUpload');
-        }
+        metadata.appendRecordingSession(startTime, endTime);
+        await metadata.save();
+
+        const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+        setReadyToUploadContainer(readyToUploadContainer, tempFiles);
+
+        console.log("stop_record:", metadata.metadata);
+
+        await buttonsStatesSave('failedUpload');
+        await sendButtonsStates('failedUpload');
+
         logClientAction({ action: "Recording stopped and files saved" });
 
         const duration = getDifferenceInTime(endTime, startTime);
@@ -834,9 +868,6 @@ async function stopRecord() {
         logClientAction(stats);
 
         cleanup();
-        if (!server_connection) {
-            // ?
-        }
 
         await showModalNotify(
             stats,
@@ -844,7 +875,7 @@ async function stopRecord() {
             true
         );
 
-        if (server_connection && !invalidStop) {
+        if (server_connection) {
             await showModalNotify(
                 ["Для отправки записи необходимо нажать кнопку «Отправить» во всплывающем окне расширения прокторинга."],
                 "Отправка записи",
@@ -882,6 +913,7 @@ async function startRecord() {
     logClientAction({ action: "Access root directory" });
 
     startTime = new Date();
+    await chrome.storage.local.set({"recording_start": startTime.toISOString()});
 
     let startRecordTime = getCurrentDateString(startTime);
 
@@ -944,6 +976,18 @@ async function startRecord() {
         // await sendButtonsStates('needPermissions');
         throw error;
     }
+    
+    metadata = new Metadata();
+
+    if (await need_init()) {
+        metadata.setMetadatasRecordOn(startTime, streams, recorders);
+        await metadata.save();
+        await chrome.storage.local.set({"session_status": "in_progress"});
+    } else {
+        await metadata.useSaved();
+    }
+
+    console.log("start_record:", metadata.metadata);
 }
 
 function delay(ms) {

@@ -396,14 +396,14 @@ buttonElements.permissions.addEventListener('click', async () => {
     });
     logClientAction({ action: "Send message", messageType: "getPermissions" });
 
-    invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
-    if (server_connection && !invalidStop && bState == "failedUpload") { // ?
-        inputElements.link.value = "";
-        saveInputValues();
-        logClientAction("Clear link field");
-        // TODO: Общий сброс. Например, когда прерванный прокторинг пользователь не захочет продолжать.
-        // chrome.storage.local.set({ 'sessionId': null });
-    }
+    // invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
+    // if (server_connection && !invalidStop && bState == "failedUpload") { // ?
+    //     inputElements.link.value = "";
+    //     saveInputValues();
+    //     logClientAction("Clear link field");
+    //     // TODO: Общий сброс. Например, когда прерванный прокторинг пользователь не захочет продолжать.
+    //     // chrome.storage.local.set({ 'sessionId': null });
+    // }
 });
 
 buttonElements.upload.addEventListener('click', async () => {
@@ -589,7 +589,7 @@ async function uploadVideo() {
         
         formData.append("id", sessionId);
         const metadata = (await chrome.storage.local.get('metadata'))['metadata'] || {};
-        formData.append("metadata", metadata);
+        formData.append("metadata", JSON.stringify(metadata));
 
         //logClientAction({ action: "Prepare upload payload", sessionId: sessionId, fileNames: [combinedFileName, cameraFileName] });
 
@@ -618,6 +618,10 @@ async function uploadVideo() {
                 // TODO Fix notify showing #142, ибо если закрыть popup здесь ничего не произойдет
                 await showModalNotify([`Статус: ${data.message}`,
                     `Отправка завершена на 100 %`], "Записи успешно отправлены", true, true);
+
+                await chrome.storage.local.remove("metadata");
+                await chrome.storage.local.set({"session_status" : "need_init"});
+
                 inputElements.link.value = "";
                 inputElements.link.classList.remove('input-valid', 'input-invalid');
                 saveInputValues();

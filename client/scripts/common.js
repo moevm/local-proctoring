@@ -288,6 +288,30 @@ export function waitForNotificationSuppression(timeout = 300) {
     });
 }
 
+export function setReadyToUploadContainer(container, files) {
+    container.innerHTML = "";
+
+    const titleElement = document.createElement("div");
+    titleElement.id = "ready-to-upload-container-title";
+    titleElement.innerHTML = `Файлов, доступных для выгрузки: ${files.length}`;
+
+    container.appendChild(titleElement);
+
+    if (files.length > 0) {
+        const filesElement = document.createElement("div");
+        filesElement.id = "ready-to-upload-container-files";
+
+        files.forEach((fileName, index) => {
+            const el = document.createElement("div");
+            el.innerHTML = `${index + 1}. ${fileName}`;
+
+            filesElement.appendChild(el);
+        })
+
+        container.appendChild(filesElement);
+    }
+}
+
 export function buttonsStatesSave(state) {
 	chrome.storage.local.set({'bState': state});
     logClientAction({ action: "Save buttons states"});
@@ -307,4 +331,12 @@ export function getCurrentDateString(date) {
     logClientAction({ action: "Generate current date string" });
     return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T` + 
     `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+}
+
+export function parseDateString(str) {
+    const [datePart, timePart] = str.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hours, minutes, seconds] = timePart.split(":").map(Number);
+
+    return new Date(year, month - 1, day, hours, minutes, seconds);
 }
