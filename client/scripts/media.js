@@ -1,5 +1,5 @@
 import { showModalNotify, waitForNotificationSuppression, getBrowserFingerprint, generateObjectId, requestClearLogs, getDifferenceInTime, getFormattedDateString, getAvailableDiskSpace, saveBlobToFile } from './common.js';
-import { getCurrentDateString, setReadyToUploadContainer, parseDateString, deleteFiles } from "./common.js";
+import { getCurrentDateString, setReadyToUploadContainer, parseDateString } from "./common.js";
 import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './logger.js';
 
 var streams = {
@@ -23,13 +23,10 @@ var previewButton = document.getElementById('preview-toggle-btn');
 var isRecording = false;
 var isPreviewEnabled = false;
 
-// var rootDirectory = null;
 var combinedFileName = null;
 var cameraFileName = null;
 var combinedFileHandle = null;
 var cameraFileHandle = null;
-// var combinedWritableStream = null;
-// var cameraWritableStream = null;
 var forceTimeout = null;
 var startTime = undefined;
 var endTime = undefined;
@@ -314,9 +311,6 @@ async function getMediaDevices() {
 
                         logClientAction({ action: "Prompt permission settings" });
 
-                        // alert('Не предоставлен доступ к камере или микрофону.\n' +
-                        //     'Сейчас откроется вкладка с настройками доступа для этого расширения.\n' +
-                        //     'Пожалуйста, убедитесь, что камера и микрофон разрешены.');
                         await showModalNotify(['Не предоставлен доступ к камере или микрофону.',
                             'Сейчас откроется вкладка с настройками доступа для этого расширения.',
                             'Пожалуйста, убедитесь, что камера и микрофон разрешены, а затем нажмите во всплывающем окне расширения кнопку Разрешения.']);
@@ -350,7 +344,7 @@ async function getMediaDevices() {
                             stopStreams();
                         } else {
                             stopDuration(startTime);
-                            await sendButtonsStates('needPermissions');
+                            await sendButtonsStates('failedUpload');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к камере потерян!");
                             // updateInvalidStopValue(true);
                             stopRecord();
@@ -370,7 +364,7 @@ async function getMediaDevices() {
                             stopStreams();
                         } else {
                             stopDuration(startTime);
-                            await sendButtonsStates('needPermissions');
+                            await sendButtonsStates('failedUpload');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения в расширении во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к экрану потерян!");
                             // updateInvalidStopValue(true);
                             stopRecord();
@@ -389,7 +383,7 @@ async function getMediaDevices() {
                             stopStreams();
                         } else {
                             stopDuration(startTime);
-                            await sendButtonsStates('needPermissions');
+                            await sendButtonsStates('failedUpload');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения в расширении во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к микрофону потерян!");
                             // updateInvalidStopValue(true);
                             stopRecord();
@@ -551,7 +545,7 @@ async function addFileToTempList(fileName) {
     if (!tempFiles.includes(fileName)) {
         logClientAction({ action: "Add file to temp list", fileName });
         const updatedFiles = [ ...tempFiles, fileName ];
-        return chrome.storage.local.set({ 'tempFiles': updatedFiles });
+        return (await chrome.storage.local.set({ 'tempFiles': updatedFiles }));
     } else {
         logClientAction({ action: "File already exists in temp list", fileName });
     }
@@ -608,24 +602,13 @@ window.addEventListener('load', async () => {
     const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
     setReadyToUploadContainer(readyToUploadContainer, tempFiles);
 
-    if (invalidStop) { // по сути мы скачиваем файлы для дебага, пользователю они не сильно нужны
-        // если нужны -> показать сообщение (найдены файлы: восстановить)
+    if (invalidStop) {
         metadata = new Metadata();
         await metadata.useSaved();
         const recordingStart = (await chrome.storage.local.get("recording_start"))["recording_start"];
         const recordingEnd = (await chrome.storage.local.get("recording_end"))["recording_end"];
         metadata.appendRecordingSession(recordingStart, recordingEnd);
         metadata.save();
-
-        // const rootDirectory = await navigator.storage.getDirectory();
-
-        // tempFiles.forEach(async fileName => {
-        //     const fileFandle = await rootDirectory.getFileHandle(fileName);
-        //     const fileBlob = await fileFandle.getFile();
-        //     saveBlobToFile(fileBlob, fileName);
-
-        //     logClientAction({ action: "Saved temp file", fileName: fileName });
-        // });
 
         console.log("invalid_stop:", metadata.metadata);
         console.log(tempFiles);
@@ -635,6 +618,7 @@ window.addEventListener('load', async () => {
 });
 
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return;
     if (message.action === 'stopRecording') {
         logClientAction({ action: "Receive message", messageType: "stopRecording" });
         if (recorders.combined || recorders.camera) {
@@ -733,6 +717,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return;
     if (message.action === 'suppressModalNotifyAT') {
         notifications_flag = false;
         console.log('notifications_flag = ', notifications_flag);
@@ -823,8 +808,8 @@ async function stopRecord() {
                 recorders.combined.stop();
             }
 
-            saveBlobToFile(file, combinedFileName);
-            logClientAction({ action: "Save recorded file", fileType: "screen", fileName: combinedFileName });
+            // saveBlobToFile(file, combinedFileName);
+            // logClientAction({ action: "Save recorded file", fileType: "screen", fileName: combinedFileName });
         }
 
         if (recorders.camera) {
@@ -835,8 +820,8 @@ async function stopRecord() {
                 recorders.camera.stop();
             }
             
-            saveBlobToFile(file, cameraFileName);
-            logClientAction({ action: "Save recorded file", fileType: "camera", fileName: cameraFileName });
+            // saveBlobToFile(file, cameraFileName);
+            // logClientAction({ action: "Save recorded file", fileType: "camera", fileName: cameraFileName });
         }
 
         metadata.appendRecordingSession(startTime, endTime);
@@ -858,12 +843,6 @@ async function stopRecord() {
             `Начало записи: ${getFormattedDateString(startTime)}`,
             `Конец записи: ${getFormattedDateString(endTime)}`,
             `Длительность записи: ${duration}`,
-            "Файлы записи экрана и камеры сохранены в папку загрузок по умолчанию.",
-            "Файл записи экрана:",
-            `${combinedFileName} (${(combinedFileSize / 1024 / 1024).toFixed(1)} MB)`,
-            "Файл записи камеры:",
-            `${cameraFileName} (${(cameraFileSize / 1024 / 1024).toFixed(1)} MB)`,
-            "Файл с логами сохранен в папку загрузок по умолчанию."
         ];
         logClientAction(stats);
 
@@ -877,7 +856,7 @@ async function stopRecord() {
 
         if (server_connection) {
             await showModalNotify(
-                ["Для отправки записи необходимо нажать кнопку «Отправить» во всплывающем окне расширения прокторинга."],
+                ["Для сохранения и отправки записи необходимо нажать кнопку «Отправить» во всплывающем окне расширения прокторинга."],
                 "Отправка записи",
                 true
             );
@@ -1004,7 +983,7 @@ async function downloadLogs(fileName) {
 
     const logsBlob = new Blob([JSON.stringify(logsToSave, null, 2)], { type: 'application/json' });
     
-    saveBlobToFile(logsBlob, fileName);
+    await saveBlobToFile(logsBlob, fileName);
 
     await requestClearLogs();
 }
@@ -1041,6 +1020,7 @@ async function showModalNotifyMedia(messages, title) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return;
     if (message.type === 'showModalNotifyOnMedia') {
         showModalNotifyMedia(message.messages, message.title).then(() => {
             sendResponse({ confirmed: true });

@@ -395,38 +395,32 @@ buttonElements.permissions.addEventListener('click', async () => {
         activateMediaTab: true
     });
     logClientAction({ action: "Send message", messageType: "getPermissions" });
-
-    // invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
-    // if (server_connection && !invalidStop && bState == "failedUpload") { // ?
-    //     inputElements.link.value = "";
-    //     saveInputValues();
-    //     logClientAction("Clear link field");
-    //     // TODO: Общий сброс. Например, когда прерванный прокторинг пользователь не захочет продолжать.
-    //     // chrome.storage.local.set({ 'sessionId': null });
-    // }
 });
 
 buttonElements.upload.addEventListener('click', async () => {
-    console.log("upload button click");
     logClientAction({ action: "Click upload button" });
+
     if (!server_connection) return;
-	const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'];
-	if (!files) {
-		buttonsStatesSave('needPermissions');
-		updateButtonsStates();
-        // ? Возможно требуется лог об ошибке
-	} // ? Зачем мы идем дальше
-    logClientAction({ action: "Start uploading video" });
-	uploadVideo()
-    .then(() => {
+
+    const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'];
+
+    if (!files) {
+        logClientAction({ action: "No files have found to upload" });
         buttonsStatesSave('needPermissions');
         updateButtonsStates();
-        //await showModalNotify(["Запись успешно отправлена на сервер."], "Запись отправлена");
-    })
-    .catch(() => {
-        buttonsStatesSave('failedUpload');
-        updateButtonsStates();
-    });
+
+    } else {
+        logClientAction({ action: "Start uploading video" });
+        uploadVideo(files)
+        .then(() => {
+            buttonsStatesSave('needPermissions');
+            updateButtonsStates();
+        })
+        .catch(() => {
+            buttonsStatesSave('failedUpload');
+            updateButtonsStates();
+        });
+    }
 });
 
 async function startRecCallback() {
@@ -561,7 +555,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-async function uploadVideo() {
+async function uploadVideo(files) {
     chrome.storage.local.get(['sessionId', 'extension_logs'], async ({ sessionId, extension_logs }) => {
         if (!sessionId) {
             console.error("Session ID не найден в хранилище");
@@ -569,7 +563,6 @@ async function uploadVideo() {
             return;
         }
 
-        const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
         console.log(files);
         if (!files.length) {
             logClientAction("Ошибка при поиске записей");
@@ -580,11 +573,17 @@ async function uploadVideo() {
         const rootDirectory = await navigator.storage.getDirectory();
 
         for (const filename of files) {
+            const blob = await (await rootDirectory.getFileHandle(filename, {create: false})).getFile();
+
             if (filename.includes('screen')) {
-                formData.append('screen_video', await (await rootDirectory.getFileHandle(filename, {create: false})).getFile(), filename);
+                formData.append('screen_video', blob, filename);
             } else {
-                formData.append('camera_video', await (await rootDirectory.getFileHandle(filename, {create: false})).getFile(), filename);
+                formData.append('camera_video', blob, filename);
             }
+
+            logClientAction(`File ${filename} saved localy`);
+
+            await saveBlobToFile(blob, filename);
         }
         
         formData.append("id", sessionId);
@@ -599,7 +598,7 @@ async function uploadVideo() {
             formData.append("logs", logsBlob, "extension_logs.json");
 
             const logsFileName = `extension_logs_${sessionId}_${getCurrentDateString(new Date())}.json`;
-            saveBlobToFile(logsBlob, logsFileName);
+            await saveBlobToFile(logsBlob, logsFileName);
 
             logClientAction({ action: "Download logs file", fileName: logsFileName });
         }

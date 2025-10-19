@@ -92,25 +92,21 @@ export async function requestClearLogs() {
     });
 }
 
-export function saveBlobToFile(blob, name) {
+export async function saveBlobToFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    filename = filename.replaceAll(":", "_");
+
     try {
-        const url = URL.createObjectURL(blob);
-
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = name;
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        URL.revokeObjectURL(url);
-
-        console.log(`Файл ${name} сохранен`);
-        logClientAction({ action: "Save file", fileName: name });
+        await chrome.downloads.download({
+            url: url,
+            filename: filename,
+            saveAs: true
+        });
+        
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
-        console.error(`Ошибка при сохранении файла ${name}:`, error);
-        logClientAction({ action: "Fail to save file", fileName: name, error: error.message });
+        console.error('Download failed:', error);
+        URL.revokeObjectURL(url);
     }
 }
 
