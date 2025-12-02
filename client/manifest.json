@@ -26,7 +26,7 @@
 	},
 	"web_accessible_resources": [
 		{
-			"resources": ["pages/media.html", "scripts/media.js", "scripts/logger.js"],
+			"resources": ["pages/media.html", "scripts/media.js", "scripts/logger.js", "settings.json"],
 			"matches": ["<all_urls>"]
 		}
 	],

@@ -1,0 +1,15 @@
+{
+    "video_settings" : {
+        "screen" : {
+            "file_extention" : "mkv",
+            "mime_type" : "video/x-matroska; codecs=\"avc1.64001E, opus\"",
+            "audio_bits_per_second" : 128000,
+            "video_bits_per_second" : 2500000
+        },
+        "camera" : {
+            "file_extention" : "mkv",
+            "mime_type" : "video/x-matroska; codecs=\"avc1.64001E\"",
+            "video_bits_per_second": 700000
+        }
+    }
+}

@@ -2,6 +2,12 @@ import { showModalNotify, waitForNotificationSuppression, getBrowserFingerprint,
 import { getCurrentDateString, setReadyToUploadContainer, parseDateString } from "./common.js";
 import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './logger.js';
 
+import settings from '../settings.json' with { type: "json" };
+
+const video_settings = settings.video_settings;
+
+console.log(settings, video_settings)
+
 var streams = {
     screen: null,
     microphone: null,
@@ -181,6 +187,35 @@ chrome.storage.onChanged.addListener((changes) => {
         logClientAction({ action: "Update invalidStop value", invalidStop: invalidStop.toString() });
     }
 });
+
+function createScreenMediaRecorder() {
+    return new MediaRecorder(
+        streams.combined, 
+        {
+            mimeType: video_settings.screen.mime_type,
+            audioBitsPerSecond: video_settings.screen.audio_bits_per_second,
+            videoBitsPerSecond: video_settings.screen.video_bits_per_second,
+        }
+    );
+}
+
+function createCameraMediaRecorder() {
+    return new MediaRecorder(
+        streams.camera, 
+        {
+            mimeType: video_settings.camera.mime_type,
+            videoBitsPerSecond: video_settings.camera.video_bits_per_second,
+        }
+    );
+}
+
+function createScreenFileName(id) {
+    return `proctoring_screen_${id}.${video_settings.screen.file_extention}`
+}
+
+function createCameraFileName(id) {
+    return `proctoring_camera_${id}.${video_settings.camera.file_extention}`
+}
 
 async function getMediaDevices() {
     return new Promise(async (resolve, reject) => {
@@ -413,18 +448,11 @@ async function getMediaDevices() {
 
                     combinedPreview.muted = false;
 
-                    recorders.combined = new MediaRecorder(streams.combined, {
-                        mimeType: 'video/mp4; codecs="avc1.64001E, opus"',
-                        audioBitsPerSecond: 128_000,
-                        videoBitsPerSecond: 2_500_000,
-                    });
+                    recorders.combined = createScreenMediaRecorder();
 
                     logClientAction({ action: "Create combined recorder" });
                     
-                    recorders.camera = new MediaRecorder(streams.camera, { 
-                        mimeType: 'video/mp4; codecs="avc1.64001E"',
-                        videoBitsPerSecond: 700_000
-                    });
+                    recorders.camera = createCameraMediaRecorder();
 
                     logClientAction({ action: "Create camera recorder" });
 
@@ -807,9 +835,6 @@ async function stopRecord() {
             if (recorders.combined.state !== 'inactive') {
                 recorders.combined.stop();
             }
-
-            // saveBlobToFile(file, combinedFileName);
-            // logClientAction({ action: "Save recorded file", fileType: "screen", fileName: combinedFileName });
         }
 
         if (recorders.camera) {
@@ -819,9 +844,6 @@ async function stopRecord() {
             if (recorders.camera.state !== 'inactive') {
                 recorders.camera.stop();
             }
-            
-            // saveBlobToFile(file, cameraFileName);
-            // logClientAction({ action: "Save recorded file", fileType: "camera", fileName: cameraFileName });
         }
 
         metadata.appendRecordingSession(startTime, endTime);
@@ -896,8 +918,10 @@ async function startRecord() {
 
     let startRecordTime = getCurrentDateString(startTime);
 
-    combinedFileName = `proctoring_screen_${startRecordTime}.mp4`;
-    cameraFileName = `proctoring_camera_${startRecordTime}.mp4`;
+    // combinedFileName = `proctoring_screen_${startRecordTime}.mkv`;
+    // cameraFileName = `proctoring_camera_${startRecordTime}.mkv`;
+    combinedFileName = createScreenFileName(startRecordTime);
+    cameraFileName = createCameraFileName(startRecordTime);
 
     await addFileToTempList(combinedFileName);
     await addFileToTempList(cameraFileName);
@@ -932,8 +956,8 @@ async function startRecord() {
         }, 14400000);
         
         // startTime = new Date();
-        recorders.combined.start(5000);
-        recorders.camera.start(5000);
+        recorders.combined.start();
+        recorders.camera.start();
 
         isRecording = true;
         isPreviewEnabled = false;
