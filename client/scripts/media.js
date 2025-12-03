@@ -956,8 +956,8 @@ async function startRecord() {
         }, 14400000);
         
         // startTime = new Date();
-        recorders.combined.start();
-        recorders.camera.start();
+        recorders.combined.start(video_settings.video_saving_interval);
+        recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
         isPreviewEnabled = false;

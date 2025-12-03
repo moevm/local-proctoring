@@ -10,6 +10,7 @@
             "file_extention" : "mkv",
             "mime_type" : "video/x-matroska; codecs=\"avc1.64001E\"",
             "video_bits_per_second": 700000
-        }
+        },
+        "video_saving_interval": 5000
     }
 }
