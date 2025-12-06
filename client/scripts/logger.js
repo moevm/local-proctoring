@@ -113,3 +113,21 @@ export async function checkAndCleanLogs() {
         }
     }
 }
+
+export function prepareLogs(extension_logs) {
+    let logsToSend;
+
+    if (typeof extension_logs === "string") {
+        try {
+            logsToSend = JSON.parse(extension_logs);
+        } catch (e) {
+            console.error("Ошибка парсинга логов:", e);
+            logsToSend = [{ error: "Invalid logs", raw_data: extension_logs }];
+            logClientAction({ action: "Parse logs error", error: e.message });
+        }
+    } else {
+        logsToSend = extension_logs;
+    }
+
+    return logsToSend;
+}

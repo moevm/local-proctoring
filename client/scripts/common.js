@@ -1,5 +1,115 @@
 import { logClientAction } from "./logger.js";
 
+export const getAvailableDiskSpace = async () => {
+    const estimate = await navigator.storage.estimate();
+    const freeSpace = estimate.quota - estimate.usage;
+    logClientAction({ action: "Check available disk space", freeSpace });
+    return freeSpace;
+};
+
+export const getFormattedDateString = (date) => {
+    logClientAction({ action: "Generate human-readable date string" });
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+
+    return `${hours}:${minutes}:${seconds}, ${day}.${month}.${year}`;
+};
+
+export const getDifferenceInTime = (date1, date2) => {
+    const diff = Math.abs(Math.floor(date2.getTime() / 1000) - Math.floor(date1.getTime() / 1000)); // ms
+    const totalSeconds = Math.floor(diff);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    // Для удобного представления
+    const formattedHours = String(hours).padStart(2, '0');
+    const formattedMinutes = String(minutes).padStart(2, '0');
+    const formattedSeconds = String(seconds).padStart(2, '0');
+
+    logClientAction({ action: "Calculate difference in time" });
+    return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
+};
+
+export function generateObjectId() {
+    const bytes = new Uint8Array(12);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, timestamp, false);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      crypto.getRandomValues(bytes.subarray(4));
+    } else {
+      for (let i = 4; i < 12; i++) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    logClientAction({ action: "Generate ObjectId" });
+
+    return Array.from(bytes)
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
+}
+
+export function getBrowserFingerprint() {
+    const fingerprint = {
+        browserVersion: navigator.userAgent.match(/Chrome\/([0-9.]+)/)?.[1] || 'unknown',
+        userAgent: navigator.userAgent,
+        language: navigator.language || navigator.userLanguage || 'unknown',
+        cpuCores: navigator.hardwareConcurrency || 'unknown',
+        screenResolution: `${window.screen.width}x${window.screen.height}`,
+        availableScreenResolution: `${window.screen.availWidth}x${window.screen.availHeight}`,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
+        timestamp: new Date().toISOString(),
+        cookiesEnabled: navigator.cookieEnabled ? 'yes' : 'no',
+        windowSize: `${window.innerWidth}x${window.innerHeight}`,
+        doNotTrack: navigator.doNotTrack || window.doNotTrack || 'unknown'
+    };
+
+    logClientAction({ action: "Get browser fingerprint", fingerprint});
+
+    return fingerprint;
+}
+
+export async function requestClearLogs() {
+    await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: "clearLogs" }, (response) => {
+            if (response.success) {
+                //ЗДЕСЬ НЕ НАДО ЛОГГИРОВАТЬ
+                //logClientAction({ action: "Clear logs" });
+                console.log("Логи очищены перед завершением");
+            } else {
+                //logClientAction({ action: "Error while clearing logs", error: response.error });
+                console.error("Ошибка очистки логов:", response.error);
+            }
+            resolve();
+        });
+    });
+}
+
+export async function saveBlobToFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    filename = filename.replaceAll(":", "_");
+
+    try {
+        await chrome.downloads.download({
+            url: url,
+            filename: filename,
+            saveAs: true
+        });
+        
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+        console.error('Download failed:', error);
+        URL.revokeObjectURL(url);
+    }
+}
+
 export async function deleteFilesFromTempList() {
     const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
     if (tempFiles.length > 0) {
@@ -174,6 +284,30 @@ export function waitForNotificationSuppression(timeout = 300) {
     });
 }
 
+export function setReadyToUploadContainer(container, files) {
+    container.innerHTML = "";
+
+    const titleElement = document.createElement("div");
+    titleElement.id = "ready-to-upload-container-title";
+    titleElement.innerHTML = `Файлов, доступных для выгрузки: ${files.length}`;
+
+    container.appendChild(titleElement);
+
+    if (files.length > 0) {
+        const filesElement = document.createElement("div");
+        filesElement.id = "ready-to-upload-container-files";
+
+        files.forEach((fileName, index) => {
+            const el = document.createElement("div");
+            el.innerHTML = `${index + 1}. ${fileName}`;
+
+            filesElement.appendChild(el);
+        })
+
+        container.appendChild(filesElement);
+    }
+}
+
 export function buttonsStatesSave(state) {
 	chrome.storage.local.set({'bState': state});
     logClientAction({ action: "Save buttons states"});
@@ -193,4 +327,12 @@ export function getCurrentDateString(date) {
     logClientAction({ action: "Generate current date string" });
     return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T` + 
     `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+}
+
+export function parseDateString(str) {
+    const [datePart, timePart] = str.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hours, minutes, seconds] = timePart.split(":").map(Number);
+
+    return new Date(year, month - 1, day, hours, minutes, seconds);
 }

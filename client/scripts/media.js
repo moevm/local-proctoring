@@ -1,6 +1,12 @@
-import { showModalNotify, waitForNotificationSuppression } from './common.js';
-import { buttonsStatesSave, deleteFiles, getCurrentDateString } from "./common.js";
-import { logClientAction, flushLogs, checkAndCleanLogs } from './logger.js';
+import { showModalNotify, waitForNotificationSuppression, getBrowserFingerprint, generateObjectId, requestClearLogs, getDifferenceInTime, getFormattedDateString, getAvailableDiskSpace, saveBlobToFile } from './common.js';
+import { getCurrentDateString, setReadyToUploadContainer, parseDateString } from "./common.js";
+import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './logger.js';
+
+import settings from '../settings.json' with { type: "json" };
+
+const video_settings = settings.video_settings;
+
+console.log(settings, video_settings)
 
 var streams = {
     screen: null,
@@ -14,6 +20,8 @@ var recorders = {
     camera: null
 };
 
+var readyToUploadContainer = document.querySelector('.ready-to-upload-container');
+
 var combinedPreview = document.querySelector('.combined__preview');
 var cameraPreview = document.querySelector('.camera__preview');
 
@@ -21,13 +29,10 @@ var previewButton = document.getElementById('preview-toggle-btn');
 var isRecording = false;
 var isPreviewEnabled = false;
 
-var rootDirectory = null;
 var combinedFileName = null;
 var cameraFileName = null;
 var combinedFileHandle = null;
 var cameraFileHandle = null;
-var combinedWritableStream = null;
-var cameraWritableStream = null;
 var forceTimeout = null;
 var startTime = undefined;
 var endTime = undefined;
@@ -35,25 +40,83 @@ var endTime = undefined;
 var server_connection = undefined;
 var notifications_flag = true;
 var invalidStop = undefined;
+var bState = undefined;
 
-var metadata = {
-    screen: {
-        session_client_start: undefined,
-        session_client_end: undefined,
-        session_client_duration: undefined,
-        session_client_mime: undefined,
-        session_client_resolution: undefined,
-        session_client_size: undefined // MB
-    },
-    camera: {
-        session_client_start: undefined,
-        session_client_end: undefined,
-        session_client_duration: undefined,
-        session_client_mime: undefined,
-        session_client_resolution: undefined,
-        session_client_size: undefined // MB
+async function need_init() {
+    console.log((await chrome.storage.local.get("session_status"))["session_status"]);
+    const session_status = (await chrome.storage.local.get("session_status"))["session_status"] || "need_init";
+    return session_status === "need_init";
+}
+
+class Metadata {
+    constructor() {
+        this.metadata = this._templateMeta();
     }
-};
+
+    _templateMeta() {
+        return {
+            session_client_start: undefined,
+            session_client_end: undefined,
+            session_client_duration: undefined,
+            screen: {
+                session_client_mime: undefined,
+                session_client_resolution: undefined,
+                session_client_size: undefined // MB
+            },
+            camera: {
+                session_client_mime: undefined,
+                session_client_resolution: undefined,
+                session_client_size: undefined // MB
+            },
+            recording_sessions: [],
+        };
+    }
+
+    async useSaved() {
+        this.metadata = (await chrome.storage.local.get("metadata"))["metadata"] || this._templateMeta();
+    }
+
+    setMetadatasRecordOn(startTime, streams, recorders) {
+        if (this.metadata.recording_sessions.length == 0) {
+            this.metadata.session_client_start = getCurrentDateString(startTime);
+
+            this.metadata.screen.session_client_mime = recorders.combined.mimeType;
+            const [screenVideoTrack] = streams.screen.getVideoTracks();
+            const screenSettings = screenVideoTrack.getSettings();
+            this.metadata.screen.session_client_resolution = `${screenSettings.width}×${screenSettings.height}`;
+
+            this.metadata.camera.session_client_mime = recorders.camera.mimeType;
+            const [cameraVideoTrack] = streams.camera.getVideoTracks();
+            const cameraSettings = cameraVideoTrack.getSettings();
+            this.metadata.camera.session_client_resolution = `${cameraSettings.width}×${cameraSettings.height}`;
+        }
+
+        logClientAction({ action: "Set metadata record on" });
+    };
+
+    async setMetadatasRecordOff(endTime) {
+        this.metadata.session_client_end = getCurrentDateString(endTime);
+        startTime = parseDateString(this.metadata.session_client_start);
+        this.metadata.session_client_duration = getDifferenceInTime(endTime, startTime);
+
+        const screenFile = await combinedFileHandle.getFile();
+        this.metadata.screen.session_client_size = (screenFile.size / 1000000).toFixed(3);
+        const cameraFile = await cameraFileHandle.getFile();
+        this.metadata.camera.session_client_size = (cameraFile.size / 1000000).toFixed(3);
+
+        logClientAction({ action: "Set metadata record off" });
+    };
+
+    appendRecordingSession(recordingStart, recordingEnd) {
+        this.metadata.recording_sessions.push([getCurrentDateString(new Date(recordingStart)), getCurrentDateString(new Date(recordingEnd))]);
+    }
+
+    async save() {
+        await chrome.storage.local.set({"metadata": this.metadata});
+    }
+}
+
+var metadata = undefined;
 
 combinedPreview.addEventListener('contextmenu', e => e.preventDefault(), {capture: true});
 
@@ -65,103 +128,6 @@ const stopStreams = () => {
         }
     });
     logClientAction({ action: "Stop streams" });
-};
-
-function generateObjectId() {
-    const bytes = new Uint8Array(12);
-    const timestamp = Math.floor(Date.now() / 1000);
-    const view = new DataView(bytes.buffer);
-    view.setUint32(0, timestamp, false);
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      crypto.getRandomValues(bytes.subarray(4));
-    } else {
-      for (let i = 4; i < 12; i++) {
-        bytes[i] = Math.floor(Math.random() * 256);
-      }
-    }
-    logClientAction({ action: "Generate ObjectId" });
-
-    return Array.from(bytes)
-      .map(byte => byte.toString(16).padStart(2, '0'))
-      .join('');
-}
-
-function getBrowserFingerprint() {
-    const fingerprint = {
-        browserVersion: navigator.userAgent.match(/Chrome\/([0-9.]+)/)?.[1] || 'unknown',
-        userAgent: navigator.userAgent,
-        language: navigator.language || navigator.userLanguage || 'unknown',
-        cpuCores: navigator.hardwareConcurrency || 'unknown',
-        screenResolution: `${window.screen.width}x${window.screen.height}`,
-        availableScreenResolution: `${window.screen.availWidth}x${window.screen.availHeight}`,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
-        timestamp: new Date().toISOString(),
-        cookiesEnabled: navigator.cookieEnabled ? 'yes' : 'no',
-        windowSize: `${window.innerWidth}x${window.innerHeight}`,
-        doNotTrack: navigator.doNotTrack || window.doNotTrack || 'unknown'
-    };
-
-    logClientAction({ action: "Get browser fingerprint", fingerprint});
-
-    return fingerprint;
-}
-
-async function clearLogs() {
-    await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: "clearLogs" }, (response) => {
-            if (response.success) {
-                //ЗДЕСЬ НЕ НАДО ЛОГГИРОВАТЬ
-                //logClientAction({ action: "Clear logs" });
-                console.log("Логи очищены перед завершением");
-            } else {
-                //logClientAction({ action: "Error while clearing logs", error: response.error });
-                // console.error("Ошибка очистки логов:", response.error);
-            }
-            resolve();
-        });
-    });
-}
-
-const getDifferenceInTime = (date1, date2) => {
-    const diff = Math.abs(Math.floor(date2.getTime() / 1000) - Math.floor(date1.getTime() / 1000)); // ms
-    const totalSeconds = Math.floor(diff);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    // Для удобного представления
-    const formattedHours = String(hours).padStart(2, '0');
-    const formattedMinutes = String(minutes).padStart(2, '0');
-    const formattedSeconds = String(seconds).padStart(2, '0');
-
-    logClientAction({ action: "Calculate difference in time" });
-    return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
-};
-
-const setMetadatasRecordOn = () => {
-    metadata.screen.session_client_start = getCurrentDateString(startTime);
-    metadata.screen.session_client_mime = recorders.combined.mimeType;
-    const [screenVideoTrack] = streams.screen.getVideoTracks();
-    const screenSettings = screenVideoTrack.getSettings();
-    metadata.screen.session_client_resolution = `${screenSettings.width}×${screenSettings.height}`;
-    metadata.camera.session_client_start = getCurrentDateString(startTime);
-    metadata.camera.session_client_mime = recorders.camera.mimeType;
-    const [cameraVideoTrack] = streams.camera.getVideoTracks();
-    const cameraSettings = cameraVideoTrack.getSettings();
-    metadata.camera.session_client_resolution = `${cameraSettings.width}×${cameraSettings.height}`;
-    logClientAction({ action: "Set metadata record on" });
-};
-
-const setMetadatasRecordOff = async () => {
-    metadata.screen.session_client_end = getCurrentDateString(endTime);
-    metadata.screen.session_client_duration = getDifferenceInTime(endTime, startTime);
-    metadata.camera.session_client_end = getCurrentDateString(endTime);
-    metadata.camera.session_client_duration = getDifferenceInTime(endTime, startTime);
-    const screenFile = await combinedFileHandle.getFile();
-    metadata.screen.session_client_size = (screenFile.size / 1000000).toFixed(3);
-    const cameraFile = await cameraFileHandle.getFile();
-    metadata.camera.session_client_size = (cameraFile.size / 1000000).toFixed(3);
-    logClientAction({ action: "Set metadata record off" });
 };
 
 async function checkOpenedPopup() {
@@ -182,7 +148,7 @@ function updateMicFill(level) {
 
 async function sendButtonsStates(state) {
     if (state === 'readyToUpload' && !server_connection) {
-        state = 'needPermissions';
+        state = 'needPermissions'; // ?
         logClientAction({ action: "Update buttons states due to missing server connection" });
     }
     if (await checkOpenedPopup()) chrome.runtime.sendMessage({action: 'updateButtonStates', state: state}, (response) => {
@@ -202,9 +168,17 @@ async function sendButtonsStates(state) {
     }
 }
 
-const updateInvalidStopValue = (flag) => {
+async function updateInvalidStopValue(flag) {
     invalidStop = flag;
-    chrome.storage.local.set({ 'invalidStop': flag });
+    await chrome.storage.local.set({ 'invalidStop': flag });
+}
+
+async function buttonsStatesSave(state) {
+    bState = state;
+    localStorage.setItem("bState", bState); // для восстановления данных
+	await chrome.storage.local.set({'bState': state});
+
+    logClientAction({ action: "Save buttons states"});
 }
 
 chrome.storage.onChanged.addListener((changes) => {
@@ -213,6 +187,35 @@ chrome.storage.onChanged.addListener((changes) => {
         logClientAction({ action: "Update invalidStop value", invalidStop: invalidStop.toString() });
     }
 });
+
+function createScreenMediaRecorder() {
+    return new MediaRecorder(
+        streams.combined, 
+        {
+            mimeType: video_settings.screen.mime_type,
+            audioBitsPerSecond: video_settings.screen.audio_bits_per_second,
+            videoBitsPerSecond: video_settings.screen.video_bits_per_second,
+        }
+    );
+}
+
+function createCameraMediaRecorder() {
+    return new MediaRecorder(
+        streams.camera, 
+        {
+            mimeType: video_settings.camera.mime_type,
+            videoBitsPerSecond: video_settings.camera.video_bits_per_second,
+        }
+    );
+}
+
+function createScreenFileName(id) {
+    return `proctoring_screen_${id}.${video_settings.screen.file_extention}`
+}
+
+function createCameraFileName(id) {
+    return `proctoring_camera_${id}.${video_settings.camera.file_extention}`
+}
 
 async function getMediaDevices() {
     return new Promise(async (resolve, reject) => {
@@ -231,6 +234,7 @@ async function getMediaDevices() {
                     await showModalNotify(["Пользователь отменил выбор экрана!", "Выдайте заново разрешения в расширении во всплывающем окне по кнопке Разрешения."], "Ошибка");
                     return;
                 }
+
                 try {
                     logClientAction({ action: "User grants screen access" });
 
@@ -342,9 +346,6 @@ async function getMediaDevices() {
 
                         logClientAction({ action: "Prompt permission settings" });
 
-                        // alert('Не предоставлен доступ к камере или микрофону.\n' +
-                        //     'Сейчас откроется вкладка с настройками доступа для этого расширения.\n' +
-                        //     'Пожалуйста, убедитесь, что камера и микрофон разрешены.');
                         await showModalNotify(['Не предоставлен доступ к камере или микрофону.',
                             'Сейчас откроется вкладка с настройками доступа для этого расширения.',
                             'Пожалуйста, убедитесь, что камера и микрофон разрешены, а затем нажмите во всплывающем окне расширения кнопку Разрешения.']);
@@ -377,10 +378,10 @@ async function getMediaDevices() {
                                 "Дайте доступ заново в расширении во всплывающем окне по кнопке Разрешения."], "Доступ к камере потерян!");
                             stopStreams();
                         } else {
-                            stopDuration();
-                            await sendButtonsStates('needPermissions');
+                            stopDuration(startTime);
+                            await sendButtonsStates('failedUpload');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к камере потерян!");
-                            updateInvalidStopValue(true);
+                            // updateInvalidStopValue(true);
                             stopRecord();
                         }
                     };
@@ -397,10 +398,10 @@ async function getMediaDevices() {
                                 "Дайте доступ заново в расширении во всплывающем окне по кнопке Разрешения."], "Доступ к экрану потерян!");
                             stopStreams();
                         } else {
-                            stopDuration();
-                            await sendButtonsStates('needPermissions');
+                            stopDuration(startTime);
+                            await sendButtonsStates('failedUpload');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения в расширении во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к экрану потерян!");
-                            updateInvalidStopValue(true);
+                            // updateInvalidStopValue(true);
                             stopRecord();
                         }
                     };
@@ -416,10 +417,10 @@ async function getMediaDevices() {
                                 "Дайте доступ заново в расширении во всплывающем окне по кнопке Разрешения."], "Доступ к микрофону потерян!");
                             stopStreams();
                         } else {
-                            stopDuration();
-                            await sendButtonsStates('needPermissions');
+                            stopDuration(startTime);
+                            await sendButtonsStates('failedUpload');
                             await showModalNotify(["Текущие записи завершатся. Чтобы продолжить запись заново, выдайте разрешения в расширении во всплывающем окне по кнопке Разрешения и начните запись."], "Доступ к микрофону потерян!");
-                            updateInvalidStopValue(true);
+                            // updateInvalidStopValue(true);
                             stopRecord();
                         }
                     };
@@ -447,30 +448,54 @@ async function getMediaDevices() {
 
                     combinedPreview.muted = false;
 
-                    recorders.combined = new MediaRecorder(streams.combined, {
-                        mimeType: 'video/mp4; codecs="avc1.64001E, opus"',
-                        audioBitsPerSecond: 128_000,
-                        videoBitsPerSecond: 2_500_000,
-                    });
+                    recorders.combined = createScreenMediaRecorder();
+
                     logClientAction({ action: "Create combined recorder" });
                     
-                    recorders.camera = new MediaRecorder(streams.camera, { 
-                        mimeType: 'video/mp4; codecs="avc1.64001E"',
-                        videoBitsPerSecond: 700_000
-                    });
+                    recorders.camera = createCameraMediaRecorder();
+
                     logClientAction({ action: "Create camera recorder" });
 
+                    // записывать время последней записи
                     recorders.combined.ondataavailable = async (event) => {
-                        if (event.data.size > 0 && combinedWritableStream) {
-                            logClientAction({ action: "Combined data available", bytes: event.data.size });
-                            await combinedWritableStream.write(event.data);
+                        if (event.data.size > 0) {
+                            const combinedWritableStream =  await combinedFileHandle.createWritable({ keepExistingData: true });
+
+                            const file = await combinedFileHandle.getFile();
+                            const size = file.size;
+
+                            console.log("combinedFileHandle", size);
+
+                            await combinedWritableStream.write({
+                                type: "write",
+                                position: size,
+                                data: event.data
+                            });
+
+                            await combinedWritableStream.close();
+
+                            await chrome.storage.local.set({"recording_end": (new Date()).toISOString()});
                         }
                     };
 
                     recorders.camera.ondataavailable = async (event) => {
-                        if (event.data.size > 0 && cameraWritableStream) {
-                            logClientAction({ action: "Camera data available", bytes: event.data.size });
-                            await cameraWritableStream.write(event.data);
+                        if (event.data.size > 0) {
+                            const cameraWritableStream =  await cameraFileHandle.createWritable({ keepExistingData: true });
+
+                            const file = await cameraFileHandle.getFile();
+                            const size = file.size;
+
+                            console.log("cameraFileHandle", size);
+
+                            await cameraWritableStream.write({
+                                type: "write",
+                                position: size,
+                                data: event.data
+                            });
+
+                            await cameraWritableStream.close();
+
+                            await chrome.storage.local.set({"recording_end": (new Date()).toISOString()});
                         }
                     };
 
@@ -543,49 +568,12 @@ async function cleanup() {
     logClientAction({ action: "Complete cleanup" });
 }
 
-async function handleFileSave(handle, name) {
-    try {
-        const file = await handle.getFile();
-        const url = URL.createObjectURL(file);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = name;
-        link.click();
-        console.log(`Файл ${name} сохранен`);
-        logClientAction({ action: "Save file", fileName: name });
-    } catch (error) {
-        console.error(`Ошибка при сохранении файла ${name}:`, error);
-        logClientAction({ action: "Fail to save file", fileName: name, error: error.message });
-    }
-}
-
-const getFormattedDateString = (date) => {
-    logClientAction({ action: "Generate human-readable date string" });
-
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-
-    return `${hours}:${minutes}:${seconds}, ${day}.${month}.${year}`;
-};
-
-const getAvailableDiskSpace = async () => {
-    const estimate = await navigator.storage.estimate();
-    const freeSpace = estimate.quota - estimate.usage;
-    logClientAction({ action: "Check available disk space", freeSpace });
-    return freeSpace;
-};
-
 async function addFileToTempList(fileName) {
     const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
     if (!tempFiles.includes(fileName)) {
         logClientAction({ action: "Add file to temp list", fileName });
         const updatedFiles = [ ...tempFiles, fileName ];
-        return chrome.storage.local.set({ 'tempFiles': updatedFiles });
+        return (await chrome.storage.local.set({ 'tempFiles': updatedFiles }));
     } else {
         logClientAction({ action: "File already exists in temp list", fileName });
     }
@@ -605,73 +593,69 @@ const beforeUnloadHandler = (event) => {
 window.addEventListener('beforeunload', beforeUnloadHandler);
 
 window.addEventListener('unload', () => {
-    logClientAction({ action: "Tab media.html unload - save state as needPermissions" });
-    let bState;
-    chrome.storage.local.get('bState').then(result => {
-        bState = result.bState;
-        logClientAction({"action": "Get bState when media load", bState});
-
-    }).catch(error => {
-        logClientAction({"action": "Error getting bState when media load", "error": error.message});
-        logClientAction({ action: "Tab media.html unload - save state as needPermissions" });
-        buttonsStatesSave('needPermissions');
-    });
     if (recorders.camera || recorders.screen) {
         if (bState == 'readyUpload' || bState == 'failedUpload') {
             logClientAction({ action: `Tab media.html unload - but current state is ${bState}` });
         }
-        else {
-            logClientAction({ action: "Tab media.html unload - save state as needPermissions" });
-            buttonsStatesSave('needPermissions');
-        }
     }
-    if (bState == 'readyToRecord' || bState == 'recording') {
+    else {
         buttonsStatesSave('needPermissions');
     }
+
+    if (bState == 'readyToRecord') {
+        buttonsStatesSave('needPermissions');
+    }
+
+    logClientAction({ action: `Tab media.html unload - current state is ${bState}` });
 })
 
 window.addEventListener('load', async () => {
+    console.log(await need_init());
     logClientAction({ action: "Load media.html tab" });
-    Object.values(streams).some(async (stream) => {
-        let bState;
-        chrome.storage.local.get('bState').then(result => {
-            bState = result.bState;
-            logClientAction({"action": "Get bState when media load", bState});
-            if (bState == 'readyUpload' || bState == 'failedUpload') {
-                logClientAction({ action: `Tab media.html load - but current state is ${bState}` });
-            }
-            else if (stream === null) {
-                logClientAction({ action: "Some stream is null - request permissions. Tab media.html load - save state as needPermissions" });
-                buttonsStatesSave('needPermissions');
-                return true;
-            }
-        }).catch(error => {
-            logClientAction({"action": "Error getting bState when media load", "error": error.message});
-            if (stream === null) {
-                logClientAction({ action: "Some stream is null - request permissions. Tab media.html load - save state as needPermissions" });
-                buttonsStatesSave('needPermissions');
-                return true;
-            }
-        });
-    });
-    invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
+
+    await buttonsStatesSave(localStorage.getItem("bState"));
+    await updateInvalidStopValue(bState === "recording");
+
+    if ((bState == 'readyToRecord' || bState == 'needPermissions') && (await need_init())) {
+        await buttonsStatesSave('needPermissions');
+    }
+    else {
+        await buttonsStatesSave('failedUpload');
+    }
+
+    await sendButtonsStates(bState);
+
+    logClientAction({ action: `Tab media.html load - current state is ${bState}` });
+
+    const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+    setReadyToUploadContainer(readyToUploadContainer, tempFiles);
+
+    if (invalidStop) {
+        metadata = new Metadata();
+        await metadata.useSaved();
+        const recordingStart = (await chrome.storage.local.get("recording_start"))["recording_start"];
+        const recordingEnd = (await chrome.storage.local.get("recording_end"))["recording_end"];
+        metadata.appendRecordingSession(recordingStart, recordingEnd);
+        metadata.save();
+
+        console.log("invalid_stop:", metadata.metadata);
+        console.log(tempFiles);
+
+        await updateInvalidStopValue(false);
+    }
 });
 
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return;
     if (message.action === 'stopRecording') {
         logClientAction({ action: "Receive message", messageType: "stopRecording" });
         if (recorders.combined || recorders.camera) {
             window.removeEventListener('beforeunload', beforeUnloadHandler);
             stopRecord();
-            await setMetadatasRecordOff();
-            chrome.storage.local.set({'metadata': JSON.stringify(metadata)});
             await sendButtonsStates('readyToUpload');
         }
     }
     else if (message.action === 'getPermissionsMedia') {
-        if (!invalidStop) {
-            await deleteFiles();
-        }
         logClientAction({ action: "Receive message", messageType: "getPermissionsMedia" });
         server_connection = (await chrome.storage.local.get('server_connection'))['server_connection'];
         getMediaDevices()
@@ -696,10 +680,8 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         });
     }
     else if (message.action === 'startRecording') {
-        updateInvalidStopValue(
-            (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false
-        );
-        if (!invalidStop) await checkAndCleanLogs();
+        if (await need_init()) await checkAndCleanLogs();
+
         logClientAction({ action: "Receive message", messageType: "startRecording" });
 
         const formData = new FormData();
@@ -721,11 +703,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             action: "Receive startRecording formData",
             formData: formDataToObject(formData),
         });
-        if (!invalidStop) {
+
+        if (await need_init()) {
             if (server_connection) {
                 await initSession(formData);
             } else {
-                getBrowserFingerprint()
+                getBrowserFingerprint();
 
                 await chrome.storage.local.set({ 'lastRecordTime': new Date().toISOString() });
 
@@ -734,7 +717,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 logClientAction({ action: "Generate session ID locally", sessionId });
             }
         }
-        updateInvalidStopValue(false);
 
         startRecord()
         .then(async () => {
@@ -763,6 +745,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return;
     if (message.action === 'suppressModalNotifyAT') {
         notifications_flag = false;
         console.log('notifications_flag = ', notifications_flag);
@@ -803,7 +786,7 @@ async function initSession(formData) {
     }
 }
 
-function stopDuration() {
+function stopDuration(startTime) {
     const durationMs = new Date() - startTime;
 
     const seconds = Math.floor((durationMs / 1000) % 60);
@@ -828,7 +811,8 @@ function stopDuration() {
 }
 
 async function stopRecord() {
-    if (!invalidStop) stopDuration();
+    // TODO
+    if (!invalidStop) stopDuration(startTime);
     chrome.runtime.sendMessage({ type: 'screenCaptureStatus', active: false });
   
     isRecording = false;
@@ -836,71 +820,43 @@ async function stopRecord() {
     hideMutePreviews();
     updatePreviewButton();
 
-    setMetadatasRecordOn();
     endTime = new Date();
-    const stopPromises = [];
+
+    await metadata.setMetadatasRecordOff(endTime);
 
     let combinedFileSize = 0;
     let cameraFileSize = 0;
+    
+    try {
+        if (recorders.combined) {
+            const file = await combinedFileHandle.getFile();
+            combinedFileSize = file.size;
 
-    if (recorders.combined) {
-        stopPromises.push(new Promise(async (resolve) => {
-            recorders.combined.onstop = async () => {
-                if (combinedWritableStream) {
-                    await combinedWritableStream.close();
-                    if (combinedFileHandle.getFile) {
-                        const file = await combinedFileHandle.getFile();
-                        combinedFileSize = file.size;
-                    }
-                    await handleFileSave(combinedFileHandle, combinedFileName);
-                    logClientAction({ action: "Save recorded file", fileType: "screen", fileName: combinedFileName });
-                }
-                resolve();
-            };
-            if (recorders.combined.state === 'inactive') {
-                if (combinedWritableStream) {
-                    await combinedWritableStream.close();
-                    await handleFileSave(combinedFileHandle, combinedFileName);
-                }
-                resolve();
+            if (recorders.combined.state !== 'inactive') {
+                recorders.combined.stop();
             }
-            else recorders.combined.stop();
-        }));
-    }
-
-    if (recorders.camera) {
-        stopPromises.push(new Promise(async (resolve) => {
-            recorders.camera.onstop = async () => {
-                if (cameraWritableStream) {
-                    await cameraWritableStream.close();
-                    if (cameraFileHandle.getFile) {
-                        const file = await cameraFileHandle.getFile();
-                        cameraFileSize = file.size;
-                    }
-                    await handleFileSave(cameraFileHandle, cameraFileName);
-                    logClientAction({ action: "Save recorded file", fileType: "camera", fileName: cameraFileName });
-                }
-                resolve();
-            };
-            if (recorders.camera.state === 'inactive') {
-                if (cameraWritableStream) {
-                    await cameraWritableStream.close();
-                    await handleFileSave(cameraFileHandle, cameraFileName);
-                }
-                resolve();
-            }
-            else recorders.camera.stop();
-        }));
-    }
-
-    // Ждем завершения обоих рекордеров, затем вызываем uploadVideo() и cleanup()
-    Promise.all(stopPromises).then(async () => {
-        if (invalidStop) {
-            // До этого уже вызывается функция
-            await sendButtonsStates('needPermissions');
-        } else {
-            await sendButtonsStates('readyToUpload');
         }
+
+        if (recorders.camera) {
+            const file = await cameraFileHandle.getFile();
+            cameraFileSize = file.size;
+
+            if (recorders.camera.state !== 'inactive') {
+                recorders.camera.stop();
+            }
+        }
+
+        metadata.appendRecordingSession(startTime, endTime);
+        await metadata.save();
+
+        const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+        setReadyToUploadContainer(readyToUploadContainer, tempFiles);
+
+        console.log("stop_record:", metadata.metadata);
+
+        await buttonsStatesSave('failedUpload');
+        await sendButtonsStates('failedUpload');
+
         logClientAction({ action: "Recording stopped and files saved" });
 
         const duration = getDifferenceInTime(endTime, startTime);
@@ -909,44 +865,35 @@ async function stopRecord() {
             `Начало записи: ${getFormattedDateString(startTime)}`,
             `Конец записи: ${getFormattedDateString(endTime)}`,
             `Длительность записи: ${duration}`,
-            "Файлы записи экрана и камеры сохранены в папку загрузок по умолчанию.",
-            "Файл записи экрана:",
-            `${combinedFileName} (${(combinedFileSize / 1024 / 1024).toFixed(1)} MB)`,
-            "Файл записи камеры:",
-            `${cameraFileName} (${(cameraFileSize / 1024 / 1024).toFixed(1)} MB)`,
-            "Файл с логами сохранен в папку загрузок по умолчанию."
         ];
         logClientAction(stats);
 
         cleanup();
-        if (!server_connection) {
-            await deleteFiles();
-        }
-        
+
         await showModalNotify(
             stats,
             "Запись завершена, статистика:",
             true
         );
 
-        if (server_connection && !invalidStop) {
+        if (server_connection) {
             await showModalNotify(
-                ["Для отправки записи необходимо нажать кнопку «Отправить» во всплывающем окне расширения прокторинга."],
+                ["Для сохранения и отправки записи необходимо нажать кнопку «Отправить» во всплывающем окне расширения прокторинга."],
                 "Отправка записи",
                 true
             );
         }
-    }).catch(error => {
+    } catch (error) {
         console.error("Ошибка при остановке записи:", error);
         logClientAction({ action: "Fail to stop recording", error: error.message });
         cleanup();
-    });
+    };
 
     await delay(500);
     await flushLogs();
     await delay(100);
     if (!server_connection) {
-        await downloadLogs();
+        await downloadLogs(`extension_logs_${getCurrentDateString(new Date())}.json`);
     }
     logClientAction('Recording stopping');
 }
@@ -963,27 +910,29 @@ async function startRecord() {
         return;
     }
 
-    rootDirectory = await navigator.storage.getDirectory();
+    const rootDirectory = await navigator.storage.getDirectory();
     logClientAction({ action: "Access root directory" });
 
     startTime = new Date();
+    await chrome.storage.local.set({"recording_start": startTime.toISOString()});
 
     let startRecordTime = getCurrentDateString(startTime);
 
-    combinedFileName = `proctoring_screen_${startRecordTime}.mp4`;
-    cameraFileName = `proctoring_camera_${startRecordTime}.mp4`;
+    // combinedFileName = `proctoring_screen_${startRecordTime}.mkv`;
+    // cameraFileName = `proctoring_camera_${startRecordTime}.mkv`;
+    combinedFileName = createScreenFileName(startRecordTime);
+    cameraFileName = createCameraFileName(startRecordTime);
+
+    await addFileToTempList(combinedFileName);
+    await addFileToTempList(cameraFileName);
 
     try {
         combinedFileHandle = await rootDirectory.getFileHandle(combinedFileName, {create: true});
-        combinedWritableStream = await combinedFileHandle.createWritable();
         logClientAction({ action: "Create file handle", fileType: "screen", fileName: combinedFileName });
 
         cameraFileHandle = await rootDirectory.getFileHandle(cameraFileName, {create: true});
-        cameraWritableStream = await cameraFileHandle.createWritable();
         logClientAction({ action: "Create file handle", fileType: "camera", fileName: cameraFileName });
 
-        await addFileToTempList(combinedFileName);
-        await addFileToTempList(cameraFileName);
         logClientAction('Files added to temp list');
 
         chrome.storage.local.set({
@@ -1006,9 +955,9 @@ async function startRecord() {
             logClientAction({ action: "Force stop recording after 4 hours" });
         }, 14400000);
         
-        startTime = new Date();
-        recorders.combined.start(5000);
-        recorders.camera.start(5000);
+        // startTime = new Date();
+        recorders.combined.start(video_settings.video_saving_interval);
+        recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
         isPreviewEnabled = false;
@@ -1019,6 +968,8 @@ async function startRecord() {
         console.log('Запись начата');
         logClientAction('recording_started');
         //chrome.runtime.sendMessage({ action: "closePopup" });
+
+        window._debug = { combinedFileHandle, cameraFileHandle, recorders };
     } catch (error) {
         console.error('Ошибка при запуске записи:', error.message);
         logClientAction({ action: "Fail to start recording", error: error.message });
@@ -1028,54 +979,37 @@ async function startRecord() {
         // await sendButtonsStates('needPermissions');
         throw error;
     }
+    
+    metadata = new Metadata();
+
+    if (await need_init()) {
+        metadata.setMetadatasRecordOn(startTime, streams, recorders);
+        await metadata.save();
+        await chrome.storage.local.set({"session_status": "in_progress"});
+    } else {
+        await metadata.useSaved();
+    }
+
+    console.log("start_record:", metadata.metadata);
 }
 
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function downloadLogs() {
-    try {
-        const { extension_logs } = await chrome.storage.local.get('extension_logs');
-        let logsToSave = [];
+async function downloadLogs(fileName) {
+    const { extension_logs } = await chrome.storage.local.get('extension_logs');
+    let logsToSave = [];
 
-        if (extension_logs) {
-            if (typeof extension_logs === "string") {
-                try {
-                    logsToSave = JSON.parse(extension_logs);
-                } catch (e) {
-                    console.error("Ошибка парсинга логов:", e);
-                    logsToSave = [{ error: "Invalid logs", raw_data: extension_logs }];
-                }
-            } else {
-                logsToSave = extension_logs;
-            }
-        }
-
-        const logsFileName = `extension_logs_${getCurrentDateString(new Date())}.json`;
-        const logsBlob = new Blob([JSON.stringify(logsToSave, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(logsBlob);
-
-        console.log("URL создан для скачивания: ", url);
-
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = logsFileName;
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        URL.revokeObjectURL(url);
-
-        console.log(`Логи сохранены локально: ${logsFileName}`);
-        logClientAction(`logs_saved_locally: ${logsFileName}`);
-
-        await clearLogs();
-    } catch (error) {
-        console.error("Ошибка при сохранении логов:", error);
-        logClientAction(`logs_save_error: ${error.message}`);
+    if (extension_logs) {
+        logsToSave = prepareLogs(extension_logs);
     }
+
+    const logsBlob = new Blob([JSON.stringify(logsToSave, null, 2)], { type: 'application/json' });
+    
+    await saveBlobToFile(logsBlob, fileName);
+
+    await requestClearLogs();
 }
 
 async function showModalNotifyMedia(messages, title) {
@@ -1110,6 +1044,7 @@ async function showModalNotifyMedia(messages, title) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return;
     if (message.type === 'showModalNotifyOnMedia') {
         showModalNotifyMedia(message.messages, message.title).then(() => {
             sendResponse({ confirmed: true });

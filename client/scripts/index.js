@@ -1,5 +1,5 @@
-import { buttonsStatesSave, deleteFiles, getCurrentDateString, showModalNotify } from "./common.js";
-import { logClientAction, checkAndCleanLogs, clearLogs } from "./logger.js";
+import { buttonsStatesSave, deleteFiles, getCurrentDateString, showModalNotify, saveBlobToFile } from "./common.js";
+import { logClientAction, checkAndCleanLogs, clearLogs, prepareLogs } from "./logger.js";
 
 const noPatronymicCheckbox = document.querySelector('#no_patronymic_checkbox');
 const permissionsStatus = document.querySelector('#permissions-status');
@@ -395,36 +395,32 @@ buttonElements.permissions.addEventListener('click', async () => {
         activateMediaTab: true
     });
     logClientAction({ action: "Send message", messageType: "getPermissions" });
-
-    invalidStop = (await chrome.storage.local.get('invalidStop'))['invalidStop'] || false;
-    if (server_connection && !invalidStop && bState == "failedUpload") {
-        inputElements.link.value = "";
-        saveInputValues();
-        logClientAction("Clear link field");
-        // TODO: Общий сброс. Например, когда прерванный прокторинг пользователь не захочет продолжать.
-        // chrome.storage.local.set({ 'sessionId': null });
-    }
 });
 
 buttonElements.upload.addEventListener('click', async () => {
     logClientAction({ action: "Click upload button" });
+
     if (!server_connection) return;
-	const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'];
-	if (!files) {
-		buttonsStatesSave('needPermissions');
-		updateButtonsStates();
-	}
-    logClientAction({ action: "Start uploading video" });
-	uploadVideo()
-    .then(() => {
+
+    const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'];
+
+    if (!files) {
+        logClientAction({ action: "No files have found to upload" });
         buttonsStatesSave('needPermissions');
         updateButtonsStates();
-        //await showModalNotify(["Запись успешно отправлена на сервер."], "Запись отправлена");
-    })
-    .catch(() => {
-        buttonsStatesSave('failedUpload');
-        updateButtonsStates();
-    });
+
+    } else {
+        logClientAction({ action: "Start uploading video" });
+        uploadVideo(files)
+        .then(() => {
+            buttonsStatesSave('needPermissions');
+            updateButtonsStates();
+        })
+        .catch(() => {
+            buttonsStatesSave('failedUpload');
+            updateButtonsStates();
+        });
+    }
 });
 
 async function startRecCallback() {
@@ -559,7 +555,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-async function uploadVideo() {
+async function uploadVideo(files) {
     chrome.storage.local.get(['sessionId', 'extension_logs'], async ({ sessionId, extension_logs }) => {
         if (!sessionId) {
             console.error("Session ID не найден в хранилище");
@@ -567,7 +563,7 @@ async function uploadVideo() {
             return;
         }
 
-        const files = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
+        console.log(files);
         if (!files.length) {
             logClientAction("Ошибка при поиске записей");
             throw new Error(`Ошибка при поиске записей`);
@@ -577,45 +573,32 @@ async function uploadVideo() {
         const rootDirectory = await navigator.storage.getDirectory();
 
         for (const filename of files) {
+            const blob = await (await rootDirectory.getFileHandle(filename, {create: false})).getFile();
+
             if (filename.includes('screen')) {
-                formData.append('screen_video', await (await rootDirectory.getFileHandle(filename, {create: false})).getFile(), filename);
+                formData.append('screen_video', blob, filename);
             } else {
-                formData.append('camera_video', await (await rootDirectory.getFileHandle(filename, {create: false})).getFile(), filename);
+                formData.append('camera_video', blob, filename);
             }
+
+            logClientAction(`File ${filename} saved localy`);
+
+            await saveBlobToFile(blob, filename);
         }
         
         formData.append("id", sessionId);
         const metadata = (await chrome.storage.local.get('metadata'))['metadata'] || {};
-        formData.append("metadata", metadata);
+        formData.append("metadata", JSON.stringify(metadata));
 
         //logClientAction({ action: "Prepare upload payload", sessionId: sessionId, fileNames: [combinedFileName, cameraFileName] });
 
         if (extension_logs) {
-            let logsToSend;
-            if (typeof extension_logs === "string") {
-                try {
-                    logsToSend = JSON.parse(extension_logs);
-                } catch (e) {
-                    console.error("Ошибка парсинга логов:", e);
-                    logsToSend = [{ error: "Invalid logs", raw_data: extension_logs }];
-                    logClientAction({ action: "Parse logs error", error: e.message });
-                }
-            } else {
-                logsToSend = extension_logs;
-            }
-
-            const logsBlob = new Blob([JSON.stringify(logsToSend, null, 2)], { type: 'application/json' });
+            let logs = prepareLogs(extension_logs);
+            const logsBlob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
             formData.append("logs", logsBlob, "extension_logs.json");
 
             const logsFileName = `extension_logs_${sessionId}_${getCurrentDateString(new Date())}.json`;
-            const url = URL.createObjectURL(logsBlob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = logsFileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            await saveBlobToFile(logsBlob, logsFileName);
 
             logClientAction({ action: "Download logs file", fileName: logsFileName });
         }
@@ -634,6 +617,10 @@ async function uploadVideo() {
                 // TODO Fix notify showing #142, ибо если закрыть popup здесь ничего не произойдет
                 await showModalNotify([`Статус: ${data.message}`,
                     `Отправка завершена на 100 %`], "Записи успешно отправлены", true, true);
+
+                await chrome.storage.local.remove("metadata");
+                await chrome.storage.local.set({"session_status" : "need_init"});
+
                 inputElements.link.value = "";
                 inputElements.link.classList.remove('input-valid', 'input-invalid');
                 saveInputValues();
