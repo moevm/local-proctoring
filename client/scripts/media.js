@@ -5,6 +5,7 @@ import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './lo
 import settings from '../settings.json' with { type: "json" };
 
 const video_settings = settings.video_settings;
+const session_settings = settings.session_settings;
 
 console.log(settings, video_settings)
 
@@ -37,7 +38,6 @@ var forceTimeout = null;
 var startTime = undefined;
 var endTime = undefined;
 
-var server_connection = undefined;
 var notifications_flag = true;
 var invalidStop = undefined;
 var bState = undefined;
@@ -147,8 +147,8 @@ function updateMicFill(level) {
 }
 
 async function sendButtonsStates(state) {
-    if (state === 'readyToUpload' && !server_connection) {
-        state = 'needPermissions'; // ?
+    if (state === 'readyToUpload' && (!session_settings.server_connection && !session_settings.local_video_saving)) {
+        state = 'needPermissions';
         logClientAction({ action: "Update buttons states due to missing server connection" });
     }
     if (await checkOpenedPopup()) chrome.runtime.sendMessage({action: 'updateButtonStates', state: state}, (response) => {
@@ -244,16 +244,20 @@ async function getMediaDevices() {
                                 chromeMediaSource: 'desktop',
                                 chromeMediaSourceId: streamId,
                                 width: { 
-                                    ideal: 1920, 
-                                    max: Math.min(2560, screen.width),
-                                    min: Math.min(1440, screen.width)
+                                    ideal: video_settings.screen.width.ideal, 
+                                    max: Math.min(video_settings.screen.width.max, screen.width),
+                                    min: Math.min(video_settings.screen.width.min, screen.width)
                                 },
                                 height: { 
-                                    ideal: 1080,
-                                    max: Math.min(1440, screen.height),
-                                    min: Math.min(810, screen.height)
+                                    ideal: video_settings.screen.height.ideal,
+                                    max: Math.min(video_settings.screen.height.max, screen.height),
+                                    min: Math.min(video_settings.screen.height.min, screen.height)
                                 },
-                                frameRate: { ideal: 20, max: 20, min: 15 }
+                                frameRate: { 
+                                    ideal: video_settings.screen.frameRate.ideal,
+                                    max: video_settings.screen.frameRate.max,
+                                    min: video_settings.screen.frameRate.min
+                                }
                             }
                         },
                     });
@@ -317,9 +321,13 @@ async function getMediaDevices() {
                     try {
                         streams.camera = await navigator.mediaDevices.getUserMedia({ 
                             video: {
-                                width: { ideal: 320 },
-                                height: { ideal: 240 },
-                                frameRate: { ideal: 17, max: 17, min: 15 }
+                                width: { ideal: video_settings.camera.width.ideal },
+                                height: { ideal: video_settings.camera.height.ideal },
+                                frameRate: { 
+                                    ideal: video_settings.camera.frameRate.ideal,
+                                    max: video_settings.camera.frameRate.max,
+                                    min: video_settings.camera.frameRate.min 
+                                }
                             }, 
                             audio: false 
                         });
@@ -657,7 +665,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     }
     else if (message.action === 'getPermissionsMedia') {
         logClientAction({ action: "Receive message", messageType: "getPermissionsMedia" });
-        server_connection = (await chrome.storage.local.get('server_connection'))['server_connection'];
         getMediaDevices()
         .then(async () => {
             logClientAction({ action: "Get media devices success" });
@@ -705,7 +712,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         });
 
         if (await need_init()) {
-            if (server_connection) {
+            if (session_settings.server_connection) {
                 await initSession(formData);
             } else {
                 getBrowserFingerprint();
@@ -876,7 +883,7 @@ async function stopRecord() {
             true
         );
 
-        if (server_connection) {
+        if (session_settings.server_connection || session_settings.local_video_saving) {
             await showModalNotify(
                 ["Для сохранения и отправки записи необходимо нажать кнопку «Отправить» во всплывающем окне расширения прокторинга."],
                 "Отправка записи",
@@ -892,9 +899,7 @@ async function stopRecord() {
     await delay(500);
     await flushLogs();
     await delay(100);
-    if (!server_connection) {
-        await downloadLogs(`extension_logs_${getCurrentDateString(new Date())}.json`);
-    }
+
     logClientAction('Recording stopping');
 }
 
@@ -918,8 +923,6 @@ async function startRecord() {
 
     let startRecordTime = getCurrentDateString(startTime);
 
-    // combinedFileName = `proctoring_screen_${startRecordTime}.mkv`;
-    // cameraFileName = `proctoring_camera_${startRecordTime}.mkv`;
     combinedFileName = createScreenFileName(startRecordTime);
     cameraFileName = createCameraFileName(startRecordTime);
 
