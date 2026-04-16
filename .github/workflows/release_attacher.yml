@@ -15,7 +15,7 @@ jobs:
 
       - name: Minimize client code
         run: |
-          apt install -y nodejs npm jq
+          sudo apt install -y nodejs npm jq
           npm install -g terser
           cd client
           for i in */*.js; do terser $i --compress -o $i; done
