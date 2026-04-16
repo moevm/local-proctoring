@@ -696,7 +696,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         formData.append('name', message.formData.name || '');
         formData.append('surname', message.formData.surname || '');
         formData.append('patronymic', message.formData.patronymic || '');
-        formData.append('link', message.formData.link || '');
+        formData.append('work_title', message.formData.work_title || '');
 
         function formDataToObject(formData) {
             const obj = {};

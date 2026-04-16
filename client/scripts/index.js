@@ -24,7 +24,7 @@ const inputElements = {
 	name: document.querySelector('#name_input'),
 	surname: document.querySelector('#surname_input'),
 	patronymic: document.querySelector('#patronymic_input'),
-	link: document.querySelector('#link_input')
+	work_title: document.querySelector('#link_input')
 };
 
 const buttonElements = {
@@ -80,20 +80,20 @@ const validationRules = {
         message: "Группа должна содержать ровно 4 цифры. Пример: '1234'"
     },
     name: {
-        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ-]*$/,
-        message: "Имя должно начинаться с заглавной буквы и содержать только русские/латинские буквы и тире. Пример: 'Иван'"
+        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ- ]*$/,
+        message: "Имя должно начинаться с заглавной буквы и содержать только русские/латинские буквы и тире/пробел. Пример: 'Иван'"
     },
     surname: {
-        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ-]*$/,
-        message: "Фамилия должна начинаться с заглавной буквы и содержать только русские/латинские буквы и тире. Пример: 'Иванов'"
+        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ- ]*$/,
+        message: "Фамилия должна начинаться с заглавной буквы и содержать только русские/латинские буквы и тире/пробел. Пример: 'Иванов'"
     },
     patronymic: {
-        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ-]*$/,
-        message: "Отчество должно начинаться с заглавной буквы и содержать только русские/латинские буквы и тире. Пример: 'Иванович'"
+        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ- ]*$/,
+        message: "Отчество должно начинаться с заглавной буквы и содержать только русские/латинские буквы и тире/пробел. Пример: 'Иванович'"
     },
-    link: {
+    work_title: {
         regex: /.+/,
-        message: "Ссылка на комнату не должна быть пустой."
+        message: "Название работы не должно быть пустым."
     }
 };
 
@@ -165,7 +165,7 @@ async function saveInputValues() {
             surname: inputElements.surname.value,
             patronymic: inputElements.patronymic.value,
             noPatronymicChecked: noPatronymicCheckbox.checked,
-            link: inputElements.link.value
+            work_title: inputElements.work_title.value
         }
     });
     logClientAction({ action: "Save input values" });
@@ -474,7 +474,7 @@ async function startRecCallback() {
         name: inputElements.name.value,
         surname: inputElements.surname.value,
         patronymic: noPatronymicCheckbox.checked ? "Без_отчества" : inputElements.patronymic.value.trim(),
-        link: inputElements.link.value
+        work_title: inputElements.work_title.value
     };
 
     chrome.runtime.sendMessage({
@@ -699,10 +699,10 @@ async function uploadVideo(files) {
             await chrome.storage.local.remove("metadata");
             await chrome.storage.local.set({"session_status" : "need_init"});
 
-            inputElements.link.value = "";
-            inputElements.link.classList.remove('input-valid', 'input-invalid');
+            inputElements.work_title.value = "";
+            inputElements.work_title.classList.remove('input-valid', 'input-invalid');
             await saveInputValues();
-            logClientAction("Clear link field");
+            logClientAction("Clear work title field");
         }
     });
 }
