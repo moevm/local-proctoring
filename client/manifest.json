@@ -1,7 +1,7 @@
 {
 	"name": "Local proctoring",
 	"description": "Local recording tool containing screen, microphone and camera.",
-	"version": "1.4.1",
+	"version": "2.0.0",
 	"manifest_version": 3,
 	"permissions": [
 		"storage",
