@@ -226,6 +226,63 @@ export async function showModalNotify(messages, title = "Уведомление"
     }
 }
 
+export async function showModalConfirm(messages, title = "Подтверждение", showOnActiveTab = false, mediaIntependent = false) {
+    chrome.runtime.sendMessage({ action: "closePopup" });
+    logClientAction({ action: "showModalConfirm", showOnActiveTab });
+
+    if (!Array.isArray(messages)) {
+        messages = [messages];
+    }
+
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+            action: "gotoMediaTab",
+            mediaExtensionUrl: chrome.runtime.getURL("pages/media.html")
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error('Error send gotoMediaTab', chrome.runtime.lastError.message);
+                logClientAction({ action: "Error send gotoMediaTab", message: chrome.runtime.lastError.message });
+            } else {
+                logClientAction({ action: "Response gotoMediaTab", response });
+            }
+        });
+
+        const existingOverlay = document.getElementById('custom-modal-overlay');
+        if (existingOverlay) existingOverlay.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'custom-modal-overlay';
+
+        const modal = document.createElement('div');
+        modal.id = 'custom-modal';
+
+        modal.innerHTML = `
+            <h2>${title}</h2>
+            <div class="modal-content">
+                ${messages.map(msg => `<p>${msg}</p>`).join('')}
+            </div>
+            <div class="modal-buttons">
+                <button id="modal-confirm-yes">Да</button>
+                <button id="modal-confirm-no">Нет</button>
+            </div>
+        `;
+
+        const closeModal = (result) => {
+            overlay.remove();
+            document.body.style.overflow = '';
+            resolve(result);
+        };
+
+        modal.querySelector('#modal-confirm-yes').addEventListener('click', () => closeModal(true));
+        modal.querySelector('#modal-confirm-no').addEventListener('click', () => closeModal(false));
+
+        document.body.style.overflow = 'hidden';
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+    });
+}
+
 function sendModalNotifyToActiveTab(messages, title) {
     return new Promise((resolve, reject) => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -289,7 +346,7 @@ export function setReadyToUploadContainer(container, files) {
 
     const titleElement = document.createElement("div");
     titleElement.id = "ready-to-upload-container-title";
-    titleElement.innerHTML = `Файлов, доступных для выгрузки: ${files.length}`;
+    titleElement.innerHTML = `<br><br><br><br><br>Файлов, доступных для выгрузки: ${files.length}`;
 
     container.appendChild(titleElement);
 
