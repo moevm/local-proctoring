@@ -24,7 +24,7 @@ const inputElements = {
 	name: document.querySelector('#name_input'),
 	surname: document.querySelector('#surname_input'),
 	patronymic: document.querySelector('#patronymic_input'),
-	work_title: document.querySelector('#link_input')
+	work_title: document.querySelector('#work_title_input')
 };
 
 const buttonElements = {
