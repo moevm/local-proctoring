@@ -13,6 +13,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Minimize client code
+        run: |
+          apt install -y nodejs npm jq
+          npm install -g terser
+          cd client
+          for i in */*.js; do terser $i --compress -o $i; done
+          jq -c < settings.json > tmp.json
+          rm settings.json && mv tmp.json settings.json
+          cd -
+
       - name: Create archive client
         run: zip -r client_${{ github.event.release.tag_name }}.zip client/*
 
