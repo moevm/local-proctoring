@@ -32,10 +32,10 @@ def start_session():
         surname = data.get("surname")
         name = data.get("name")
         patronymic = data.get("patronymic")
-        link = data.get("link")
+        work_title = data.get("work_title")
 
-        if not (group and surname and name and patronymic and link):
-            return jsonify({"error": "Поля 'group', 'surname', 'name', 'patronymic', 'link' обязательны для заполнения"}), 400
+        if not (group and surname and name and patronymic and work_title):
+            return jsonify({"error": "Поля 'group', 'surname', 'name', 'patronymic', 'work_title' обязательны для заполнения"}), 400
 
         session_start = datetime.now(timezone.utc)
         # Форматирование даты
@@ -48,7 +48,7 @@ def start_session():
             "surname": surname,
             "name": name,
             "patronymic": patronymic,
-            "link": link,
+            "work_title": work_title,
             "session_date_start": session_date_start,
             "session_time_start": session_time_start,
             "session_date_end": None,
@@ -60,7 +60,7 @@ def start_session():
             "logs_path": None
         }
 
-        sessions_collection.insert_one(session_data)
+        sessions_collection.insert_one(session_data)    # TODO: add MongoModel
         return jsonify({"id": str(id)}), 201
 
     except Exception as e:

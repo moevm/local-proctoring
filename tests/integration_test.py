@@ -10,7 +10,7 @@ def check_integration(url):
             "surname": "Tester",
             "name": "Test",
             "patronymic": "Testerovich",
-            "link": "http://test.com"
+            "work_title": "http://test.com"
         }
 
         print(f"Создана форма {form_data} для интеграционного тестирования")
