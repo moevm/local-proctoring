@@ -24,7 +24,7 @@ const inputElements = {
 	name: document.querySelector('#name_input'),
 	surname: document.querySelector('#surname_input'),
 	patronymic: document.querySelector('#patronymic_input'),
-	work_title: document.querySelector('#work_title_input')
+	title: document.querySelector('#title_input')
 };
 
 const buttonElements = {
@@ -93,7 +93,7 @@ const validationRules = {
         regex: validationStringRegExp,
         message: "Отчество должно начинаться с заглавной буквы и содержать только кириллицу и тире/пробел. Пример: 'Иванович'"
     },
-    work_title: {
+    title: {
         regex: /.+/,
         message: "Название работы не должно быть пустым."
     }
@@ -167,7 +167,7 @@ async function saveInputValues() {
             surname: inputElements.surname.value,
             patronymic: inputElements.patronymic.value,
             noPatronymicChecked: noPatronymicCheckbox.checked,
-            work_title: inputElements.work_title.value
+            title: inputElements.title.value
         }
     });
     logClientAction({ action: "Save input values" });
@@ -476,7 +476,7 @@ async function startRecCallback() {
         name: inputElements.name.value,
         surname: inputElements.surname.value,
         patronymic: noPatronymicCheckbox.checked ? "Без_отчества" : inputElements.patronymic.value.trim(),
-        work_title: inputElements.work_title.value
+        title: inputElements.title.value
     };
 
     chrome.runtime.sendMessage({
@@ -606,7 +606,7 @@ async function saveFormDataFilesLocally(formData, sessionId) {
 async function uploadFormDataToServer(formData, sessionId) {
     logClientAction({ action: "Send upload request", sessionId: sessionId, messageType: "upload_video" });
 
-    const eventSource = new EventSource(`http://127.0.0.1:5000/progress/${sessionId}`);
+    const eventSource = new EventSource(`${session_settings.server_url}/progress/${sessionId}`);
 
     const steps = 7;
 
@@ -636,7 +636,7 @@ async function uploadFormDataToServer(formData, sessionId) {
     };
 
     try {
-        const response = await fetch('http://127.0.0.1:5000/upload_video', {
+        const response = await fetch(`${session_settings.server_url}/upload_video`, {
             method: "POST",
             body: formData,
         });
@@ -701,8 +701,8 @@ async function uploadVideo(files) {
             await chrome.storage.local.remove("metadata");
             await chrome.storage.local.set({"session_status" : "need_init"});
 
-            inputElements.work_title.value = "";
-            inputElements.work_title.classList.remove('input-valid', 'input-invalid');
+            inputElements.title.value = "";
+            inputElements.title.classList.remove('input-valid', 'input-invalid');
             await saveInputValues();
             logClientAction("Clear work title field");
         }

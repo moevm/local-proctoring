@@ -74,6 +74,10 @@ class Metadata {
                 session_client_size: undefined // MB
             },
             recording_sessions: [],
+            no_stream_confirm: {
+                microphone: false,
+                camera: false
+            }
         };
     }
 
@@ -95,7 +99,9 @@ class Metadata {
                 const [cameraVideoTrack] = streams.camera.getVideoTracks();
                 const cameraSettings = cameraVideoTrack.getSettings();
                 this.metadata.camera.session_client_resolution = `${cameraSettings.width}×${cameraSettings.height}`;
-            }
+            } else
+            this.metadata.no_stream_confirm.microphone = noStreamConfirm.microphone;
+            this.metadata.no_stream_confirm.camera =  noStreamConfirm.camera;
         }
 
         logClientAction({ action: "Set metadata record on" });
@@ -715,7 +721,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 "Для удобства уведомление о доступе к вашему экрану можно скрыть или передвинуть. НЕЛЬЗЯ НАЖИМАТЬ НА «Закрыть доступ».",
                 "НЕЛЬЗЯ ОБНОВЛЯТЬ, ЗАКРЫВАТЬ СЛУЖЕБНУЮ ВКЛАДКУ во время записи! НЕЛЬЗЯ ЗАКРЫВАТЬ БРАУЗЕР во время записи!",
                 "Предпросмотр будет отключен. Его можно включить по кнопке на служебной вкладке расширения. По умолчанию звук выключен и включается в плеере.",
-,],
+            ],
                 "Готово к записи");
         })
         .catch(async () => {
@@ -733,7 +739,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         formData.append('name', message.formData.name || '');
         formData.append('surname', message.formData.surname || '');
         formData.append('patronymic', message.formData.patronymic || '');
-        formData.append('work_title', message.formData.work_title || '');
+        formData.append('title', message.formData.title || '');
 
         function formDataToObject(formData) {
             const obj = {};
@@ -802,9 +808,10 @@ async function initSession(formData) {
     getBrowserFingerprint()
 
     try {
-        const response = await fetch('http://127.0.0.1:5000/start_session', {
+        const response = await fetch(`${session_settings.server_url}/start_session`, {
             method: 'POST',
             mode: 'cors',
+            credentials: 'include',
             body: formData
         });
 
@@ -869,6 +876,7 @@ async function stopRecord() {
 
     console.log(metadata)
 
+    // ВОТ ТУТ
     await metadata.setMetadatasRecordOff(endTime);
 
     let combinedFileSize = 0;

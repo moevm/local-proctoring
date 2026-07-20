@@ -34,5 +34,8 @@
 		"16": "assets/icons/icon.png",
 		"48": "assets/icons/icon.png",
 		"128": "assets/icons/icon.png"
-	}
+	},
+	"host_permissions": [
+		"https://proctoring.moevm.pro/"
+	]
 }
