@@ -44,7 +44,7 @@ document.addEventListener("DOMContentLoaded", function () {
             `${fields2column}`,
             "status",
             "metadata",
-            "link"
+            "title"
         ];
 
         // Создаем заголовок таблицы

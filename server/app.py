@@ -8,6 +8,8 @@ import gridfs
 from bson import ObjectId
 from flask_cors import CORS
 from datetime import datetime, timezone
+from logging import getLogger
+
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -32,10 +34,10 @@ def start_session():
         surname = data.get("surname")
         name = data.get("name")
         patronymic = data.get("patronymic")
-        link = data.get("link")
+        title = data.get("title")
 
-        if not (group and surname and name and patronymic and link):
-            return jsonify({"error": "Поля 'group', 'surname', 'name', 'patronymic', 'link' обязательны для заполнения"}), 400
+        if not (group and surname and name and patronymic and title):
+            return jsonify({"error": f"Поля 'group', 'surname', 'name', 'patronymic', 'title' обязательны для заполнения. {data}"}), 400
 
         session_start = datetime.now(timezone.utc)
         # Форматирование даты
@@ -48,7 +50,7 @@ def start_session():
             "surname": surname,
             "name": name,
             "patronymic": patronymic,
-            "link": link,
+            "title": title,
             "session_date_start": session_date_start,
             "session_time_start": session_time_start,
             "session_date_end": None,
@@ -60,7 +62,7 @@ def start_session():
             "logs_path": None
         }
 
-        sessions_collection.insert_one(session_data)
+        sessions_collection.insert_one(session_data)    # TODO: add MongoModel
         return jsonify({"id": str(id)}), 201
 
     except Exception as e:
@@ -92,11 +94,14 @@ def convert_user_time_to_utc(user_time_str, user_time_offset):
     user_time_utc = user_time + user_time_offset
     return user_time_utc.strftime("%Y%m%dT%H%M%S") 
 
-@app.route("/upload_video", methods=["POST"])
+@app.route("/upload_video/", methods=["POST"])
 def upload_video():
     """Обрабатывает загрузку видео с клиента, сохраняет файл и обновляет данные сеанса."""
+    getLogger().error(request.form)
+    getLogger().error(request.files)
     try:
-        if "screen_video" not in request.files or "camera_video" not in request.files or "id" not in request.form:
+        if "screen_video" not in request.files or "id" not in request.form:
+            getLogger('root').error(request.files)
             return jsonify({"error": "Отсутствует видеофайл или ID сессии"}), 400
         
         id = request.form["id"]

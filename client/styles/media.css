@@ -76,6 +76,28 @@
     background: #0056b3;
 }
 
+#modal-confirm-yes {
+    margin-top: 15px;
+    background: #008c05;
+    color: #faf0ec !important;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+#modal-confirm-no {
+    margin-top: 15px;
+    background: #8c0000;
+    color: #faf0ec !important;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
 
 .preview-label {
     font-size: 18px;
@@ -214,8 +236,8 @@
     left: 50%;
     transform: translateX(-50%);
     margin-top: 8px;
-    width: 24px;
-    height: 24px;
+    width: 48px;
+    height: 48px;
     z-index: 10;
     pointer-events: none;
 }

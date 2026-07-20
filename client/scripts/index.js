@@ -24,7 +24,7 @@ const inputElements = {
 	name: document.querySelector('#name_input'),
 	surname: document.querySelector('#surname_input'),
 	patronymic: document.querySelector('#patronymic_input'),
-	link: document.querySelector('#link_input')
+	title: document.querySelector('#title_input')
 };
 
 const buttonElements = {
@@ -74,26 +74,28 @@ const bStates = {
 	}
 }
 
+const validationStringRegExp = /^[А-ЯЁ][а-яёА-ЯЁ -]*$/;
+
 const validationRules = {
     group: {
         regex: /^\d{4}$/, 
         message: "Группа должна содержать ровно 4 цифры. Пример: '1234'"
     },
     name: {
-        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ-]*$/,
-        message: "Имя должно начинаться с заглавной буквы и содержать только русские/латинские буквы и тире. Пример: 'Иван'"
+        regex: validationStringRegExp,
+        message: "Имя должно начинаться с заглавной буквы и содержать только кириллицу и тире/пробел. Пример: 'Иван'"
     },
     surname: {
-        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ-]*$/,
-        message: "Фамилия должна начинаться с заглавной буквы и содержать только русские/латинские буквы и тире. Пример: 'Иванов'"
+        regex: validationStringRegExp,
+        message: "Фамилия должна начинаться с заглавной буквы и содержать только кириллицу и тире/пробел. Пример: 'Иванов'"
     },
     patronymic: {
-        regex: /^[A-ZА-ЯЁ][a-zа-яёA-ZА-ЯЁ-]*$/,
-        message: "Отчество должно начинаться с заглавной буквы и содержать только русские/латинские буквы и тире. Пример: 'Иванович'"
+        regex: validationStringRegExp,
+        message: "Отчество должно начинаться с заглавной буквы и содержать только кириллицу и тире/пробел. Пример: 'Иванович'"
     },
-    link: {
+    title: {
         regex: /.+/,
-        message: "Ссылка на комнату не должна быть пустой."
+        message: "Название работы не должно быть пустым."
     }
 };
 
@@ -165,7 +167,7 @@ async function saveInputValues() {
             surname: inputElements.surname.value,
             patronymic: inputElements.patronymic.value,
             noPatronymicChecked: noPatronymicCheckbox.checked,
-            link: inputElements.link.value
+            title: inputElements.title.value
         }
     });
     logClientAction({ action: "Save input values" });
@@ -474,7 +476,7 @@ async function startRecCallback() {
         name: inputElements.name.value,
         surname: inputElements.surname.value,
         patronymic: noPatronymicCheckbox.checked ? "Без_отчества" : inputElements.patronymic.value.trim(),
-        link: inputElements.link.value
+        title: inputElements.title.value
     };
 
     chrome.runtime.sendMessage({
@@ -604,7 +606,7 @@ async function saveFormDataFilesLocally(formData, sessionId) {
 async function uploadFormDataToServer(formData, sessionId) {
     logClientAction({ action: "Send upload request", sessionId: sessionId, messageType: "upload_video" });
 
-    const eventSource = new EventSource(`http://127.0.0.1:5000/progress/${sessionId}`);
+    const eventSource = new EventSource(`${session_settings.server_url}/progress/${sessionId}`);
 
     const steps = 7;
 
@@ -634,7 +636,7 @@ async function uploadFormDataToServer(formData, sessionId) {
     };
 
     try {
-        const response = await fetch('http://127.0.0.1:5000/upload_video', {
+        const response = await fetch(`${session_settings.server_url}/upload_video`, {
             method: "POST",
             body: formData,
         });
@@ -699,10 +701,10 @@ async function uploadVideo(files) {
             await chrome.storage.local.remove("metadata");
             await chrome.storage.local.set({"session_status" : "need_init"});
 
-            inputElements.link.value = "";
-            inputElements.link.classList.remove('input-valid', 'input-invalid');
+            inputElements.title.value = "";
+            inputElements.title.classList.remove('input-valid', 'input-invalid');
             await saveInputValues();
-            logClientAction("Clear link field");
+            logClientAction("Clear work title field");
         }
     });
 }
