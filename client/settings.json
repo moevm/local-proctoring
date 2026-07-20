@@ -21,7 +21,7 @@
     },
     "session_settings" : {
         "server_connection" : true,
-        "local_video_saving" : false,
+        "local_video_saving" : true,
         "server_url": "https://proctoring.moevm.pro/api/remoteSessions"
     }
 }
