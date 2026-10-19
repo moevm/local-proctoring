@@ -455,6 +455,7 @@ async function getMediaDevices() {
                     combinedPreview.style.display = 'block';
 
                     combinedPreview.muted = false;
+                    isPreviewEnabled = true; //+
 
                     recorders.combined = createScreenMediaRecorder();
 
@@ -963,8 +964,8 @@ async function startRecord() {
         recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
-        isPreviewEnabled = false;
-        hideMutePreviews();
+        //isPreviewEnabled = false;
+        //hideMutePreviews();
         updatePreviewButton();
 
 
