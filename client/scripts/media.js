@@ -523,7 +523,8 @@ async function getMediaDevices() {
                     cameraPreview.style.display =  streams.camera ? 'block' : 'none';
                     combinedPreview.style.display = 'block';
 
-                    combinedPreview.muted = true;
+                    combinedPreview.muted = false;
+                    isPreviewEnabled = true;
 
                     recorders.combined = createScreenMediaRecorder();
 
@@ -1008,8 +1009,8 @@ async function startRecord() {
             recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
-        isPreviewEnabled = false;
-        hideMutePreviews();
+        //isPreviewEnabled = false;
+        //hideMutePreviews();
         updatePreviewButton();
 
         console.log('Запись начата');
