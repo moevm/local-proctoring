@@ -1,4 +1,4 @@
-import { deleteFilesFromTempList, buttonsStatesSave } from "./common.js";
+import { buttonsStatesSave } from "./common.js";
 import { logClientAction, clearLogs } from "./logger.js";
 
 const DEV_MODE = false;
@@ -16,28 +16,22 @@ function handleExtensionUpdate() {
         if (shouldForceReset) {
             console.log(`[Extension] Reset triggered. DevMode: ${DEV_MODE}, Version changed: ${storedVersion} → ${CURRENT_VERSION}`);
 
-            const preservedData = {};
-            if (items.inputElementsValue) {
-                preservedData.inputElementsValue = items.inputElementsValue;
-            }
-
-            chrome.storage.local.clear(() => {
-                chrome.storage.local.set({
-                ...preservedData,
-                version: CURRENT_VERSION
-                }, () => {
-                console.log('[Extension] Storage cleared, inputElementsValue preserved, version updated.');
-                });
+            // Never erase pending recordings / their OPFS index on update.
+            chrome.storage.local.set({
+                version: CURRENT_VERSION,
+                bState: items.tempFiles?.length ? 'failedUpload' : 'needPermissions',
+                screenCaptureActive: false,
+                invalidStop: items.invalidStop || items.bState === 'recording'
             });
         } else {
             console.log('[Extension] Version unchanged and not in dev mode:', CURRENT_VERSION);
         }
 
-        const resettableStates = ['readyToRecord', 'recording'];
+        const resettableStates = ['readyToRecord', 'recording', 'uploading'];
         const currentState = items.bState;
 
         if (resettableStates.includes(currentState)) {
-            buttonsStatesSave('needPermissions');
+            buttonsStatesSave(items.tempFiles?.length ? 'failedUpload' : 'needPermissions');
         }
     });
 }
@@ -79,7 +73,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
 	if (alarm.name === 'dynamicCleanup') {
 		logClientAction({ action: "Trigger alarm", messageType: "dynamicCleanup" });
-	  	await deleteFilesFromTempList();
+		// Unsent recordings must never be deleted by a timer.
 	  	chrome.alarms.clear('dynamicCleanup');
 		logClientAction({ action: "Complete alarm", messageType: "dynamicCleanup" });
 	}
@@ -88,7 +82,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 var startTime;
 
 function sendStartMessage(formData) {
-	setScreenCaptureActive(true);
 	logClientAction({ action: "Send message", messageType: "startRecording" });
     chrome.runtime.sendMessage({
         action: 'startRecording',
@@ -126,8 +119,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 	}
 });
 
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-	if (message.action === 'startRecord' || message.action === 'getPermissions') {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id || !["startRecord","getPermissions","uploadRecord","stopRecord"].includes(message.action)) return;
+    (async () => {
+	if (message.action === 'startRecord' || message.action === 'getPermissions' || message.action === 'uploadRecord') {
 		logClientAction({ action: "Receive message", messageType: message.action });
 		const result = await checkTabState();
 		if (result === undefined) {
@@ -139,15 +134,21 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 			});
 			logClientAction({ action: "Create tab for media.html", tabId: tab.id });
 
-			await new Promise((resolve) => {
-				const listener = (tabId, changed, currentTab) => {
-					if (tabId === tab.id && changed.status === 'complete') {
-						chrome.tabs.onUpdated.removeListener(listener);
-						resolve();
-					}
-				};
-				chrome.tabs.onUpdated.addListener(listener);
-			});
+            await new Promise((resolve, reject) => {
+                const finish = error => {
+                    clearTimeout(timer);
+                    chrome.tabs.onUpdated.removeListener(listener);
+                    if (error) reject(error); else resolve();
+                };
+                const listener = (tabId, changed) => {
+                    if (tabId === tab.id && changed.status === 'complete') finish();
+                };
+                const timer = setTimeout(() => finish(new Error('Служебная вкладка не загрузилась. Повторите операцию.')), 15000);
+                chrome.tabs.onUpdated.addListener(listener);
+                chrome.tabs.get(tab.id).then(current => {
+                    if (current.status === 'complete') finish();
+                }, finish);
+            });
 		} else {
 			if (!result[0] && message.activateMediaTab) {
 				logClientAction({ action: "Activate existing media.html tab", tabId: result[1] });
@@ -157,7 +158,10 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 		if (message.action === "startRecord") {
 			sendStartMessage(message.formData);
 			logClientAction({ action: "sendStartMessage", message: message.formData});
-		} else {
+		} else if (message.action === 'uploadRecord') {
+            const response = await chrome.runtime.sendMessage({ action: 'uploadRecording' });
+            if (!response?.accepted) throw new Error(response?.error || 'Служебная вкладка не приняла отправку');
+        } else {
 			chrome.runtime.sendMessage({action: message.action + "Media"});
 			logClientAction({ action: "Send message", messageType: `${message.action}Media` });
 		}
@@ -169,8 +173,13 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 		});
 		logClientAction({ action: "Send message", messageType: "stopRecording" });
 	}
-});
 
+    })().then(() => sendResponse({ accepted: true }), error => {
+        console.error(error);
+        sendResponse({ success: false, error: error.message });
+    });
+    return true;
+});
 
 chrome.runtime.onMessage.addListener(
 	function(message, sender, sendResponse) {
@@ -290,6 +299,6 @@ chrome.runtime.onMessage.addListener(
 				}
 			});
 		}
-	  sendResponse(message);
+	  if (['gotoMediaTab', 'closeTabAndOpenTab'].includes(message.action)) sendResponse(message);
 	}
 );

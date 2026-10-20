@@ -1,3 +1,7 @@
+function escapeHTML(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
 async function showModalNotifyAT(messages, title) {
     return new Promise((resolve) => {
         const existingOverlay = document.getElementById('custom-modal-overlay');
@@ -10,9 +14,9 @@ async function showModalNotifyAT(messages, title) {
         modal.id = 'custom-modal';
 
         modal.innerHTML = `
-            <h2>${title}</h2>
+            <h2>${escapeHTML(title)}</h2>
             <div class="modal-content">
-                ${messages.map(msg => `<p>${msg}</p>`).join('')}
+                ${messages.map(msg => `<p>${escapeHTML(msg)}</p>`).join('')}
             </div>
             <button id="modal-close-btn">Хорошо. Я прочитал(а).</button>
         `;
