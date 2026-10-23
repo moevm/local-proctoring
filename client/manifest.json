@@ -1,38 +1,45 @@
 {
-	"name": "Local proctoring",
-	"description": "Local recording tool containing screen, microphone and camera.",
-	"version": "2.0.0",
-	"manifest_version": 3,
-	"permissions": [
-		"storage",
-		"alarms",
-		"tabs",
-		"desktopCapture",
-		"downloads"
-	],
-	"content_scripts": [
-		{
-			"matches": ["<all_urls>"],
-			"js": ["scripts/content.js"],
-			"css": ["styles/media.css"]
-		}
-	],
-	"action": {
-		"default_popup": "pages/index.html"
-	},
-	"background": {
-		"service_worker": "scripts/background.js",
-		"type": "module"
-	},
-	"web_accessible_resources": [
-		{
-			"resources": ["pages/media.html", "scripts/media.js", "scripts/logger.js", "settings.json"],
-			"matches": ["<all_urls>"]
-		}
-	],
-	"icons": {
-		"16": "assets/icons/icon.png",
-		"48": "assets/icons/icon.png",
-		"128": "assets/icons/icon.png"
-	}
+  "name": "Local proctoring",
+  "description": "Local recording tool containing screen, microphone and camera.",
+  "version": "3.1.0",
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy62qMaIW8d2GJP798g8RiU/pbvBqh62Tue8MBELtBUBFEDq3dtJDIYFz0Qi87CE4X+lj9qJMLP22cICXsnVkVQx44ppyvFFBXBZCcRb0s3nKCjDLPGZvjF7DdtznuHCJFu7qBNwePPMSLqO0V+js9zxf13zCDBKV1t8+iFmkP8+a62FBEfVXMvCaI6eHjDI8wPUUerjrl3v/HgWINRYFFxloFO+CK5+IE2h5JMWYiBd4wwrEz9HHj72hyPX90nSEuTCu0wpB7oND6hyEN2QanfVYURVYWQy/idCXLHceMO+yDuwaLodsoEKlHzFAJQwYCiLK0sIK5WOm3omLakCbxwIDAQAB",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "desktopCapture",
+    "downloads",
+    "unlimitedStorage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "scripts/content.js"
+      ],
+      "css": [
+        "styles/media.css"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "pages/index.html"
+  },
+  "background": {
+    "service_worker": "scripts/background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "assets/icons/icon.png",
+    "48": "assets/icons/icon.png",
+    "128": "assets/icons/icon.png"
+  },
+  "host_permissions": [
+    "https://proctoring.moevm.pro/*",
+    "http://127.0.0.1/*"
+  ],
+  "minimum_chrome_version": "134"
 }

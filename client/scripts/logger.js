@@ -3,7 +3,8 @@ let logBuffer = [];
 let isFlushing = false;
 
 export async function flushLogs() {
-    if (isFlushing || logBuffer.length === 0) return;
+    if (isFlushing) return logQueue;
+    if (logBuffer.length === 0) return;
     isFlushing = true;
 
     logQueue = logQueue.then(async () => {
@@ -21,11 +22,17 @@ export async function flushLogs() {
             }
 
             logs.push(...logBuffer);
+            // Keep uploadable logs bounded; never consume all extension storage.
+            logs = logs.slice(-10000);
             logBuffer = [];
 
             let serializedLogs;
             try {
                 serializedLogs = JSON.stringify(logs);
+                while (new TextEncoder().encode(serializedLogs).length > 8 * 1024 * 1024 && logs.length > 1) {
+                    logs = logs.slice(Math.ceil(logs.length / 2));
+                    serializedLogs = JSON.stringify(logs);
+                }
                 // console.log('Размер сериализованных логов:', new TextEncoder().encode(serializedLogs).length, 'байт');
             } catch (e) {
                 console.error('Ошибка сериализации логов:', e.message);
@@ -48,6 +55,7 @@ export async function flushLogs() {
             isFlushing = false;
         }
     });
+    return logQueue;
 }
 
 export function logClientAction(data) {

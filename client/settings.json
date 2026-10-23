@@ -20,7 +20,8 @@
         "video_saving_interval": 5000
     },
     "session_settings" : {
-        "server_connection" : false,
-        "local_video_saving" : true
+        "server_connection" : true,
+        "local_video_saving" : true,
+        "server_url": "https://proctoring.moevm.pro/api/remoteSessions"
     }
 }

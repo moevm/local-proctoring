@@ -52,3 +52,6 @@ server/data
 *.env.*
 !.env.example
 .github
+
+# Generated synthetic test report
+/tests/recording-recovery/result.json
