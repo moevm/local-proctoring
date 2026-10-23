@@ -24,14 +24,18 @@ export function assessPolicy(policy, version) {
     return { blocked: Boolean((unsupported && policy.blockUnsupported !== false) || (outdated && policy.blockOutdated) || (unknown && policy.blockUnknown)),
         outdated, unsupported, unknown };
 }
+export async function fetchPluginPolicy(settings) {
+    if (!settings.server_connection) return null;
+    const { requestJSON } = await import('./upload.js');
+    return requestJSON(settings.server_url.replace(/\/$/, '') + '/plugin_policy', {
+        cache: 'no-store', timeoutMs: 10000
+    });
+}
 export async function checkPluginPolicy(settings, notify) {
     if (!settings.server_connection) return;
-    const { requestJSON } = await import('./upload.js');
     let policy;
     try {
-        policy = await requestJSON(settings.server_url.replace(/\/$/, '') + '/plugin_policy', {
-            cache: 'no-store', signal: AbortSignal.timeout(10000)
-        });
+        policy = await fetchPluginPolicy(settings);
     } catch (error) {
         throw new Error('Не удалось проверить версию расширения. Запись не начата. ' + error.message);
     }

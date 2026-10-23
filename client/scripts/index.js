@@ -1,9 +1,11 @@
-import { buttonsStatesSave, deleteFiles, getCurrentDateString, showModalNotify, saveBlobToFile } from "./common.js";
-import { logClientAction, checkAndCleanLogs, clearLogs, prepareLogs } from "./logger.js";
+import { logClientAction, checkAndCleanLogs } from "./logger.js";
+import { showPopupPolicy } from "./popup-policy.js";
 
 import settings from '../settings.json' with { type: "json" };
 
 const session_settings = settings.session_settings;
+
+void showPopupPolicy(session_settings, document.getElementById("plugin-update-notice"));
 
 const noPatronymicCheckbox = document.querySelector('#no_patronymic_checkbox');
 const permissionsStatus = document.querySelector('#permissions-status');

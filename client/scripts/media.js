@@ -2,9 +2,9 @@ function escapeHTML(value) {
     return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
 
-import { showModalNotify, showModalConfirm, waitForNotificationSuppression, getBrowserFingerprint, generateObjectId, requestClearLogs, getDifferenceInTime, getFormattedDateString, getAvailableDiskSpace, saveBlobToFile } from './common.js';
+import { showModalNotify, showModalConfirm, waitForNotificationSuppression, getBrowserFingerprint, generateObjectId, getDifferenceInTime, getFormattedDateString, getAvailableDiskSpace } from './common.js';
 import { getCurrentDateString, setReadyToUploadContainer, parseDateString } from "./common.js";
-import { logClientAction, flushLogs, checkAndCleanLogs, prepareLogs } from './logger.js';
+import { logClientAction, flushLogs, checkAndCleanLogs } from './logger.js';
 
 import { attachRecorderWriter } from './recorder-writer.js';
 import { requestJSON, uploadSession, assertCanResume } from './upload.js';
@@ -502,7 +502,7 @@ async function getMediaDevices() {
                                 stopRecord();
                             }
                         };
-                        combinedStreams.push(streams.microphone.getAudioTracks()[0])
+                        if (!streams.camera) combinedStreams.push(streams.microphone.getAudioTracks()[0])
                     }
 
                     streams.combined = new MediaStream(combinedStreams);
@@ -1033,21 +1033,6 @@ function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function downloadLogs(fileName) {
-    const { extension_logs } = await chrome.storage.local.get('extension_logs');
-    let logsToSave = [];
-
-    if (extension_logs) {
-        logsToSave = prepareLogs(extension_logs);
-    }
-
-    const logsBlob = new Blob([JSON.stringify(logsToSave, null, 2)], { type: 'application/json' });
-    
-    await saveBlobToFile(logsBlob, fileName);
-
-    await requestClearLogs();
-}
-
 async function showModalNotifyMedia(messages, title) {
     return new Promise((resolve) => {
         const existingOverlay = document.getElementById('custom-modal-overlay');
@@ -1098,7 +1083,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         await uploadSession(session_settings);
         setReadyToUploadContainer(readyToUploadContainer, []);
         await sendButtonsStates('needPermissions');
-        await showModalNotify('Видео сохранены. Локальные исходники удалены только после подтверждения сохранения.', 'Сохранение завершено');
+        await showModalNotify([session_settings.server_connection ? 'ВСЕ ВИДЕО УСПЕШНО ЗАГРУЖЕНЫ НА СЕРВЕР.' : 'Все видео сохранены на вашем компьютере.', 'Сохранение завершено. Можно закрыть эту вкладку.'], 'Сохранение завершено');
     })().catch(async error => {
         await sendButtonsStates('failedUpload');
         await showModalNotify([error.message, 'Локальные файлы сохранены. Закрытие popup не прерывает отправку; не закрывайте эту вкладку.'], 'Не удалось завершить сохранение');

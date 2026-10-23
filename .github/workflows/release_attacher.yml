@@ -1,4 +1,4 @@
-name: Release Attacher for client and server
+name: Release Attacher for client
 
 on:
   release:
@@ -6,28 +6,30 @@ on:
 
 jobs:
   release-archives:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Minimize client code
-        run: |
-          sudo apt install -y nodejs npm jq
-          npm install -g terser
-          cd client
-          for i in */*.js; do terser $i --compress -o $i; done
-          jq -c < settings.json > tmp.json
-          rm settings.json && mv tmp.json settings.json
-          cd -
+      - name: Check client version and identity
+        run: node scripts/check-release-version.js
 
       - name: Create archive client
-        run: zip -r client_${{ github.event.release.tag_name }}.zip client/*
+        env:
+          ARCHIVE_NAME: client_${{ github.event.release.tag_name }}.zip
+        run: |
+          zip -q -r -X "$ARCHIVE_NAME" client \
+            -x 'client/tests/*' 'client/*.md'
+          unzip -tq "$ARCHIVE_NAME"
 
       - name: Attach archives to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          fail_on_unmatched_files: true
           files: |
             client_${{ github.event.release.tag_name }}.zip

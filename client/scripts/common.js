@@ -81,22 +81,6 @@ export function getBrowserFingerprint() {
     return fingerprint;
 }
 
-export async function requestClearLogs() {
-    await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: "clearLogs" }, (response) => {
-            if (response.success) {
-                //ЗДЕСЬ НЕ НАДО ЛОГГИРОВАТЬ
-                //logClientAction({ action: "Clear logs" });
-                console.log("Логи очищены перед завершением");
-            } else {
-                //logClientAction({ action: "Error while clearing logs", error: response.error });
-                console.error("Ошибка очистки логов:", response.error);
-            }
-            resolve();
-        });
-    });
-}
-
 export async function saveBlobToFile(blob, filename) {
     return downloadBlob(blob, filename);
 }
