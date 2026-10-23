@@ -1,5 +1,4 @@
-import { buttonsStatesSave, deleteFiles, getCurrentDateString, showModalNotify, saveBlobToFile } from "./common.js";
-import { logClientAction, checkAndCleanLogs, clearLogs, prepareLogs } from "./logger.js";
+import { logClientAction, checkAndCleanLogs } from "./logger.js";
 
 import settings from '../settings.json' with { type: "json" };
 
