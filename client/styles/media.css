@@ -61,7 +61,9 @@
     font-size: 1rem;
 }
 
-#modal-close-btn {
+#modal-close-btn,
+#modal-confirm-btn,
+#modal-cancel-btn{
     margin-top: 15px;
     background: #00488c;
     color: #faf0ec !important;
@@ -76,6 +78,21 @@
     background: #0056b3;
 }
 
+#modal-confirm-btn {
+    background: #d32f2f;
+}
+
+#modal-confirm-btn:hover {
+    background: #b71c1c;
+}
+
+#modal-cancel-btn {
+    background: #4caf50;
+}
+
+#modal-cancel-btn {
+    background: #388e3c;
+}
 
 .preview-label {
     font-size: 18px;

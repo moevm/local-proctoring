@@ -455,7 +455,7 @@ async function getMediaDevices() {
                     combinedPreview.style.display = 'block';
 
                     combinedPreview.muted = false;
-                    isPreviewEnabled = true; //+
+                    isPreviewEnabled = true;
 
                     recorders.combined = createScreenMediaRecorder();
 
@@ -530,16 +530,27 @@ function hideMutePreviews() {
     logClientAction({ action: "Hide and mute previews" });
 }
 
-previewButton.addEventListener('click', () => {
+previewButton.addEventListener('click', async () => {
     if (!isRecording) {
         logClientAction({ action: "Ignore preview toggle click - not recording" });
         return;
     }
 
+    if (isPreviewEnabled) {
+        const confirmed = await showConfirmModal(
+            ["Вы уверены, что хотите отключить предпросмотр?",
+             "Вы не будете видеть себя и свой экран!"],
+            "Подтверждение отключения предпросмотра"
+        );
+
+        if (!confirmed) {
+            logClientAction({action: "Preview disable cancelled by user"});
+            return;
+        }
+    }
+
     combinedPreview.muted = true;
-
     isPreviewEnabled = !isPreviewEnabled;
-
     const displayValue = isPreviewEnabled ? 'block' : 'none';
     cameraPreview.style.display = displayValue;
     combinedPreview.style.display = displayValue;
@@ -964,8 +975,6 @@ async function startRecord() {
         recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
-        //isPreviewEnabled = false;
-        //hideMutePreviews();
         updatePreviewButton();
 
 
@@ -1016,7 +1025,7 @@ async function downloadLogs(fileName) {
     await requestClearLogs();
 }
 
-async function showModalNotifyMedia(messages, title) {
+async function showConfirmModal(messages, title) {
     return new Promise((resolve) => {
         const existingOverlay = document.getElementById('custom-modal-overlay');
         if (existingOverlay) existingOverlay.remove();
@@ -1032,15 +1041,22 @@ async function showModalNotifyMedia(messages, title) {
             <div class="modal-content">
                 ${messages.map(msg => `<p>${msg}</p>`).join('')}
             </div>
-            <button id="modal-close-btn">Хорошо. Я прочитал(а).</button>
+            <button id="modal-confirm-btn">Да, отключить.</button>
+            <button id="modal-cancel-btn">Нет, оставить.</button>
         `;
 
-        modal.querySelector('#modal-close-btn').addEventListener('click', () => {
+        modal.querySelector('#modal-confirm-btn').addEventListener('click', () => {
             overlay.remove();
             document.body.style.overflow = '';
-            resolve();
+            resolve(true);
         });
 
+        modal.querySelector('#modal-cancel-btn').addEventListener('click', () => {
+            overlay.remove();
+            document.body.style.overflow = '';
+            resolve(false);
+        });
+        
         document.body.style.overflow = 'hidden';
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
