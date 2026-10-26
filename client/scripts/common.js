@@ -1,4 +1,9 @@
+function escapeHTML(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
 import { logClientAction } from "./logger.js";
+import { downloadBlob } from "./download.js";
 
 export const getAvailableDiskSpace = async () => {
     const estimate = await navigator.storage.estimate();
@@ -76,56 +81,24 @@ export function getBrowserFingerprint() {
     return fingerprint;
 }
 
-export async function requestClearLogs() {
-    await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: "clearLogs" }, (response) => {
-            if (response.success) {
-                //ЗДЕСЬ НЕ НАДО ЛОГГИРОВАТЬ
-                //logClientAction({ action: "Clear logs" });
-                console.log("Логи очищены перед завершением");
-            } else {
-                //logClientAction({ action: "Error while clearing logs", error: response.error });
-                console.error("Ошибка очистки логов:", response.error);
-            }
-            resolve();
-        });
-    });
-}
-
 export async function saveBlobToFile(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    filename = filename.replaceAll(":", "_");
-
-    try {
-        await chrome.downloads.download({
-            url: url,
-            filename: filename,
-            saveAs: true
-        });
-        
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) {
-        console.error('Download failed:', error);
-        URL.revokeObjectURL(url);
-    }
+    return downloadBlob(blob, filename);
 }
 
-export async function deleteFilesFromTempList() {
-    const tempFiles = (await chrome.storage.local.get('tempFiles'))['tempFiles'] || [];
-    if (tempFiles.length > 0) {
-        const root = await navigator.storage.getDirectory();
-        logClientAction({ action: "Start delete temporary files", fileCount: tempFiles.length });
-        for (const file of tempFiles) {
-            try {
-                await root.removeEntry(file);
-                logClientAction({ action: "Delete temp file", fileName: file });
-            } catch (e) {
-                console.log(e);
-                logClientAction({ action: "Fail to delete temp file", fileName: file, error: String(e) });
-            }
+export async function deleteFilesFromTempList(names) {
+    const { tempFiles = [] } = await chrome.storage.local.get('tempFiles');
+    const root = await navigator.storage.getDirectory();
+    const removed = new Set();
+    let failed = false;
+    for (const name of names || tempFiles) {
+        try { await root.removeEntry(name); removed.add(name); }
+        catch (error) {
+            if (error.name === 'NotFoundError') removed.add(name);
+            else failed = true;
         }
-        chrome.storage.local.remove('tempFiles');
     }
+    await chrome.storage.local.set({ tempFiles: tempFiles.filter(name => !removed.has(name)) });
+    if (failed) throw new Error('Не удалось удалить часть сохранённых файлов. Индекс восстановления сохранён; повторите операцию.');
 }
 
 export async function showModalNotify(messages, title = "Уведомление", showOnActiveTab = false, mediaIntependent=false) {
@@ -159,7 +132,7 @@ export async function showModalNotify(messages, title = "Уведомление"
             throw error;
         }
     } else {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({
                 action: "gotoMediaTab",
                 mediaExtensionUrl: chrome.runtime.getURL("pages/media.html") }, (response) => {
@@ -184,9 +157,9 @@ export async function showModalNotify(messages, title = "Уведомление"
                 modal.id = 'custom-modal';
 
                 modal.innerHTML = `
-                    <h2>${title}</h2>
+                    <h2>${escapeHTML(title)}</h2>
                     <div class="modal-content">
-                        ${messages.map(msg => `<p>${msg}</p>`).join('')}
+                        ${messages.map(msg => `<p>${escapeHTML(msg)}</p>`).join('')}
                     </div>
                     <button id="modal-close-btn">Хорошо. Я прочитал(а).</button>
                 `;
@@ -224,6 +197,63 @@ export async function showModalNotify(messages, title = "Уведомление"
             }
         });
     }
+}
+
+export async function showModalConfirm(messages, title = "Подтверждение", showOnActiveTab = false, mediaIntependent = false) {
+    chrome.runtime.sendMessage({ action: "closePopup" });
+    logClientAction({ action: "showModalConfirm", showOnActiveTab });
+
+    if (!Array.isArray(messages)) {
+        messages = [messages];
+    }
+
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+            action: "gotoMediaTab",
+            mediaExtensionUrl: chrome.runtime.getURL("pages/media.html")
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error('Error send gotoMediaTab', chrome.runtime.lastError.message);
+                logClientAction({ action: "Error send gotoMediaTab", message: chrome.runtime.lastError.message });
+            } else {
+                logClientAction({ action: "Response gotoMediaTab", response });
+            }
+        });
+
+        const existingOverlay = document.getElementById('custom-modal-overlay');
+        if (existingOverlay) existingOverlay.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'custom-modal-overlay';
+
+        const modal = document.createElement('div');
+        modal.id = 'custom-modal';
+
+        modal.innerHTML = `
+            <h2>${escapeHTML(title)}</h2>
+            <div class="modal-content">
+                ${messages.map(msg => `<p>${escapeHTML(msg)}</p>`).join('')}
+            </div>
+            <div class="modal-buttons">
+                <button id="modal-confirm-yes">Да</button>
+                <button id="modal-confirm-no">Нет</button>
+            </div>
+        `;
+
+        const closeModal = (result) => {
+            overlay.remove();
+            document.body.style.overflow = '';
+            resolve(result);
+        };
+
+        modal.querySelector('#modal-confirm-yes').addEventListener('click', () => closeModal(true));
+        modal.querySelector('#modal-confirm-no').addEventListener('click', () => closeModal(false));
+
+        document.body.style.overflow = 'hidden';
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+    });
 }
 
 function sendModalNotifyToActiveTab(messages, title) {
@@ -289,7 +319,7 @@ export function setReadyToUploadContainer(container, files) {
 
     const titleElement = document.createElement("div");
     titleElement.id = "ready-to-upload-container-title";
-    titleElement.innerHTML = `Файлов, доступных для выгрузки: ${files.length}`;
+    titleElement.textContent = `Файлов, доступных для выгрузки: ${files.length}`;
 
     container.appendChild(titleElement);
 
@@ -299,7 +329,7 @@ export function setReadyToUploadContainer(container, files) {
 
         files.forEach((fileName, index) => {
             const el = document.createElement("div");
-            el.innerHTML = `${index + 1}. ${fileName}`;
+            el.textContent = `${index + 1}. ${fileName}`;
 
             filesElement.appendChild(el);
         })
@@ -309,12 +339,12 @@ export function setReadyToUploadContainer(container, files) {
 }
 
 export function buttonsStatesSave(state) {
-	chrome.storage.local.set({'bState': state});
+	return chrome.storage.local.set({'bState': state});
     logClientAction({ action: "Save buttons states"});
 }
 
-export async function deleteFiles() {
-    await deleteFilesFromTempList();
+export async function deleteFiles(names) {
+    await deleteFilesFromTempList(names);
     chrome.alarms.get('dynamicCleanup', (alarm) => {
         if (alarm) {
             chrome.alarms.clear('dynamicCleanup');
@@ -325,14 +355,9 @@ export async function deleteFiles() {
 
 export function getCurrentDateString(date) {
     logClientAction({ action: "Generate current date string" });
-    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T` + 
-    `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+    return date.toISOString();
 }
 
 export function parseDateString(str) {
-    const [datePart, timePart] = str.split("T");
-    const [year, month, day] = datePart.split("-").map(Number);
-    const [hours, minutes, seconds] = timePart.split(":").map(Number);
-
-    return new Date(year, month - 1, day, hours, minutes, seconds);
+    return new Date(str);
 }
