@@ -3,7 +3,7 @@
 Текущая версия проекта — [VERSION](../VERSION). Активен только client; отдельный server
 не разворачивается. Это инструкция, не публикация архива и не выполненное обновление.
 Общий порядок backend / ML / backup / отката:
-[production-runbook](../../proctoring/docs/production-upgrade.md).
+[production-runbook](https://github.com/OSLL/proctoring/blob/pre-release/docs/production-upgrade.md).
 
 ## 1. Подготовить сервер и контрольную установку
 
@@ -31,8 +31,8 @@
 ~~~sh
 node scripts/sync-release-version.js
 node scripts/check-release-version.js
-node --test scripts/tests/releaseVersion.test.js
-node --experimental-default-type=module --test client/tests/*.test.js
+docker compose run --build --rm tests node --test unit/release-version.test.js
+docker compose run --build --rm tests npm run test:unit
 ~~~
 
 В архив включается client, без server, .env, реальных видеозаписей и пользовательских профилей.

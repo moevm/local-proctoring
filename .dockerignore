@@ -1,0 +1,14 @@
+**
+!client/
+!client/**
+!scripts/
+!scripts/**
+!VERSION
+!tests/
+!tests/**
+tests/node_modules/
+tests/reports/
+**/__pycache__/
+**/.pytest_cache/
+**/.env*
+**/*.log

@@ -8,23 +8,28 @@ export async function flushLogs() {
     isFlushing = true;
 
     logQueue = logQueue.then(async () => {
+        const batch = logBuffer;
+        logBuffer = [];
         try {
-            const result = await new Promise((resolve) => {
-                chrome.storage.local.get(['extension_logs'], (result) => resolve(result));
+            const result = await new Promise((resolve, reject) => {
+                chrome.storage.local.get(['extension_logs'], result => {
+                    if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+                    else resolve(result);
+                });
             });
 
             let logs = [];
             try {
                 logs = result.extension_logs ? JSON.parse(result.extension_logs) : [];
+                if (!Array.isArray(logs)) logs = [];
             } catch (e) {
                 console.error('Ошибка при парсинге extension_logs:', e.message);
                 logs = [];
             }
 
-            logs.push(...logBuffer);
+            logs.push(...batch);
             // Keep uploadable logs bounded; never consume all extension storage.
             logs = logs.slice(-10000);
-            logBuffer = [];
 
             let serializedLogs;
             try {
@@ -33,16 +38,22 @@ export async function flushLogs() {
                     logs = logs.slice(Math.ceil(logs.length / 2));
                     serializedLogs = JSON.stringify(logs);
                 }
+                if (new TextEncoder().encode(serializedLogs).length > 8 * 1024 * 1024) {
+                    serializedLogs = JSON.stringify([{ time_act: logs[0]?.time_act,
+                        action: 'Oversized log entry omitted (8 MiB limit)' }]);
+                }
                 // console.log('Размер сериализованных логов:', new TextEncoder().encode(serializedLogs).length, 'байт');
             } catch (e) {
                 console.error('Ошибка сериализации логов:', e.message);
                 return;
             }
 
-            await new Promise((resolve) => {
+            await new Promise((resolve, reject) => {
                 chrome.storage.local.set({ 'extension_logs': serializedLogs }, () => {
                     if (chrome.runtime.lastError) {
                         console.error('Ошибка при сохранении логов:', chrome.runtime.lastError.message);
+                        reject(new Error(chrome.runtime.lastError.message));
+                        return;
                     } else {
                         // console.log('Батч логов успешно сохранен', logs);
                     }
@@ -50,6 +61,7 @@ export async function flushLogs() {
                 });
             });
         } catch (e) {
+            logBuffer = [...batch, ...logBuffer];
             console.error('Ошибка при выполнении flushLogs:', e);
         } finally {
             isFlushing = false;
@@ -108,7 +120,14 @@ export async function checkAndCleanLogs() {
     if (!lastRecordTime || lastRecordTime < timeAgo) {
         const logsResult = await chrome.storage.local.get('extension_logs');
         if (logsResult.extension_logs) {
-            const logs = JSON.parse(logsResult.extension_logs);
+            let logs;
+            try {
+                logs = JSON.parse(logsResult.extension_logs);
+                if (!Array.isArray(logs)) return;
+            } catch {
+                // Keep damaged history available for diagnostics; never break popup startup.
+                return;
+            }
             const cleanedLogs = logs.filter(log => {
                 const logTime = new Date(log.time_act);
                 return (now - logTime) <= delTime;

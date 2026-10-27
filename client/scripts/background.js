@@ -21,13 +21,13 @@ function handleExtensionUpdate() {
                 version: CURRENT_VERSION,
                 bState: items.tempFiles?.length ? 'failedUpload' : 'needPermissions',
                 screenCaptureActive: false,
-                invalidStop: items.invalidStop || items.bState === 'recording'
+                invalidStop: items.invalidStop || ['recording', 'finalizing'].includes(items.bState)
             });
         } else {
             console.log('[Extension] Version unchanged and not in dev mode:', CURRENT_VERSION);
         }
 
-        const resettableStates = ['readyToRecord', 'recording', 'uploading'];
+        const resettableStates = ['readyToRecord', 'recording', 'finalizing', 'uploading'];
         const currentState = items.bState;
 
         if (resettableStates.includes(currentState)) {
