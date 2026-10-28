@@ -1,58 +1,39 @@
-name: Tester for Local proctoring
+name: Client tests
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
-    
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  tester:
-    runs-on: ubuntu-latest
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Python packages
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install -r tests/requirements.txt
-      
-      - name: Install playwright packages
-        run: playwright install
-    
-      - name: Start server
-        run: docker compose -f server/docker-compose.yml up -d
-
-      - name: Check server availability
-        run: |
-          attempt=1
-          max_attempts=10
-          sleep_time=5
-          
-          while [ $attempt -le $max_attempts ]; do
-            echo "Проверка  доступности сервера, попытка $attempt"
-            if curl http://localhost:5000 --output /dev/null --fail --head --silent; then
-              echo "Сервер запущен!"
-              exit 0
-            else
-              echo "Сервер не отвечает, пауза между попытками $sleep_time секунд"
-              sleep $sleep_time
-              ((attempt++))
-            fi
-          done
-          
-          echo "Сервер недоступен после $max_attempts попыток"
-          exit 1
-
-      - name: Run server tests
-        run: |
-          chmod +x tests/run_server_tests.sh
-          cd tests && ./run_server_tests.sh
-
-      - name: Run client tests
-        run: |
-          chmod +x tests/run_client_tests.sh
-          cd tests && ./run_client_tests.sh
-
-      - name: Stop server
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build test environment
+        run: docker compose build --pull tests
+      - name: Run all checks in the container
+        env:
+          CI: 'true'
+        run: TEST_UID=$(id -u) TEST_GID=$(id -g) docker compose run --rm -e CI tests
+      - name: Upload test reports
         if: always()
-        run: docker compose -f server/docker-compose.yml down
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-test-results
+          path: |
+            tests/reports/results.json
+            tests/reports/junit.xml
+            tests/reports/html/
+          if-no-files-found: warn
+          retention-days: 7

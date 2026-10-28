@@ -1,6 +1,7 @@
 # Проверка совместимости с proctoring (15.10.2026)
 
-Изменения относятся только к client. Каталог server не используется и не изменялся.
+Исторический отчёт: изменения на эту дату относились только к client.
+Старый server позднее удалён; текущие тесты описаны в [tests/README.md](../tests/README.md).
 Основа MV3 / отдельная вкладка записи / OPFS сохранена. Первоначальная проверка
 проводилась с версией 2.0.3. Текущая версия комплекта — в [VERSION](../VERSION), manifest генерируется из неё; key и ID сохранены. См. [README](../README.md) и
 [CHANGELOG](../CHANGELOG.md). Числа тестов ниже относятся к датам отдельных прогонов.
@@ -122,9 +123,9 @@
 
 ## Автотесты
 
-Node 20.20+:
+Из корня репозитория через Docker Compose:
 
-    node --experimental-default-type=module --test client/tests/*.test.js
+    docker compose run --build --rm tests npm run test:unit
 
 Проверяются cookie/MIME, сохранность при ошибке, отсутствие повторного POST, подтверждение
 HTTP 200, отмена download, очередь чанков и последний чанк. На backend добавлены тесты
@@ -145,5 +146,5 @@ POST start_session передаёт plugin_version из manifest. HTTP 426 оз�
 новой сессии до обновления; upload / status остаются доступны для старых записей.
 Локальные метаданные сохраняют plugin_version записывающего клиента, без замены
 при отправке после обновления. Политика и переменные backend описаны в
-[контракте веба](../../proctoring/docs/local-proctoring-compatibility.md#политика-обновлений-расширения).
+[контракте веба](https://github.com/OSLL/proctoring/blob/pre-release/docs/local-proctoring-compatibility.md#политика-обновлений-расширения).
 Offline-режим не проверяет серверную политику; номер не является аттестацией клиента.

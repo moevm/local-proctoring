@@ -44,6 +44,7 @@ if (!session_settings.server_connection && !session_settings.local_video_saving)
 }
 
 const bStates = {
+    finalizing: { permissions: 0, start: 0, stop: 0, upload: 0 },
     uploading: { permissions: 0, start: 0, stop: 0, upload: 0 },
 	'needPermissions': {
 		permissions: 1,

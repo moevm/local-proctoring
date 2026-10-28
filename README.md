@@ -6,11 +6,11 @@
 
 ## Связанные проекты и область поддержки
 
-- [proctoring](../proctoring/README.md) — пользовательский вход, приём видео,
+- [proctoring](https://github.com/OSLL/proctoring) — пользовательский вход, приём видео,
   очередь, /teach/:id и результаты.
-- [proctoring-ml](../proctoring-ml/README.md) — анализ после сохранения в backend.
-- В этом репозитории актуален **только client/**. Папки server/ и playground/ не участвуют
-  в рабочем запуске; отдельный сервер расширения не разворачивается.
+- [proctoring-ml](https://github.com/OSLL/proctoring-ml) — анализ после сохранения в backend.
+- В этом репозитории актуален **только client/**. Неактивный server/ удалён; playground/
+  содержит исторические эксперименты и не участвует в рабочем запуске.
 
 VERSION задаёт версию этого проекта; [CHANGELOG.md](CHANGELOG.md) — изменения;
 [политика проекта](docs/versioning.md) — правила синхронизации.
@@ -25,10 +25,16 @@ node scripts/sync-release-version.js и node scripts/check-release-version.js.
 Обновление установок и серверной связки: [production-инструкция](docs/production-upgrade.md).
 
 Официально поддерживается Google Chrome 134+, Linux / Windows.
-Сквозной тест выполнен на Linux Chrome 154. Другие Chromium и macOS требуют проверки.
+Контейнерные UI-тесты выполняются на Linux Chrome for Testing; точная версия указана
+в [tests/Dockerfile](tests/Dockerfile). Другие Chromium и macOS требуют проверки.
 Расширение распространяется архивом, не через Chrome Web Store.
 Получайте актуальный архив у сопровождающего проекта; старые внешние ссылки на релизы
 не определяют актуальную локальную версию.
+
+При публикации GitHub Release [release workflow](.github/workflows/release_attacher.yml)
+прикрепляет `client_<tag>.zip`. Он проверяет версию / ID и упаковывает исходный client
+без минификации, тестов и Markdown. Node и ZIP берутся из готового runner; установка
+зависимостей не нужна. Тег определяет имя архива, версия клиента остаётся из VERSION.
 
 1. Распакуйте client, откройте chrome://extensions и включите режим разработчика.
 2. Выберите «Загрузить распакованное расширение» и каталог client.
@@ -59,7 +65,7 @@ node scripts/sync-release-version.js и node scripts/check-release-version.js.
 Для production укажите HTTPS-домен основного прокторинга.
 В client/manifest.json host_permissions должен разрешать именно origin сервера с /*.
 
-В proctoring/backend/.env добавьте, сохраняя прочие разрешённые origin:
+В `.env` [backend прокторинга](https://github.com/OSLL/proctoring/tree/pre-release/backend) добавьте, сохраняя прочие разрешённые origin:
 
 ~~~dotenv
 FRONTEND_ORIGINS=chrome-extension://nlhjjbgkbfkopkigkbkojpkbffbkeohg
@@ -118,19 +124,25 @@ Remote API допускает до 8 GiB на файл / 16 GiB на запро�
 связать с точным составом файлов, они сохраняются для ручного скачивания.
 Ошибки чтения/удаления сохраняют индекс восстановления. Сетевые запросы ограничены
 30 секундами (статус) и 15 минутами (upload); после timeout можно повторить отправку.
-Проверки сбоев: [tests/recording-recovery/VALIDATION.md](tests/recording-recovery/VALIDATION.md).
+Проверки сбоев: [docs/validation.md](docs/validation.md).
 
 ## Проверки
 
-Из корня репозитория, Node 20.20+:
+Нужны только Docker и Compose. Из корня репозитория:
 
 ~~~sh
-node --experimental-default-type=module --test client/tests/*.test.js
+docker compose run --build --rm tests
 ~~~
 
-Проверка скриптов версии: `node --test scripts/tests/*.test.js`.
+По умолчанию выполняются форматирование, ESLint, проверка версии, unit-тесты,
+HTTP-контракт mock API и UI-сценарии в Chrome. Для отдельного набора замените команду:
+`docker compose run --build --rm tests npm run test:unit`.
+Node, Chrome, Xvfb, ffprobe и mock API находятся внутри контейнера; CI использует
+тот же образ и Compose-сервис. Отчёты сохраняются в tests/reports.
+Команды, fixtures и примеры новых тестов: [tests/README.md](tests/README.md).
 Отдельная сборка client не нужна: Chrome загружает каталог напрямую.
 Результаты финального прогона — в [docs/validation.md](docs/validation.md).
+Матрица сценариев и пробелы unit / UI: [docs/test-coverage.md](docs/test-coverage.md).
 
 ## Ограничения
 

@@ -24,7 +24,7 @@ jobs:
           ARCHIVE_NAME: client_${{ github.event.release.tag_name }}.zip
         run: |
           zip -q -r -X "$ARCHIVE_NAME" client \
-            -x 'client/tests/*' 'client/*.md'
+            -x 'client/*.md'
           unzip -tq "$ARCHIVE_NAME"
 
       - name: Attach archives to GitHub Release

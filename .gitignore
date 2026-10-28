@@ -44,14 +44,16 @@ coverage/
 *.cover
 *.coverage
 htmlcov/
-# Server
-server/data
+
+# Preserved local recordings from the retired server
+/server/data/
 
 # Environment variables
 .env
 *.env.*
 !.env.example
-.github
 
-# Generated synthetic test report
-/tests/recording-recovery/result.json
+# Standalone client test dependencies
+/tests/node_modules/
+/tests/reports/*
+!/tests/reports/.gitkeep

@@ -26,7 +26,7 @@ node scripts/check-release-version.js
 - key, ID, разрешения, пользовательские данные и зависимости не изменяются.
 
 Проверка без записи — check-release-version.js; регрессии:
-node --test scripts/tests/releaseVersion.test.js.
+docker compose run --build --rm tests node --test unit/release-version.test.js.
 Все входные файлы проверяются до первой записи. Зависимости, .env, CHANGELOG
 и исходники приложения синхронизация не меняет.
 

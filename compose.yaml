@@ -1,0 +1,15 @@
+services:
+  tests:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    platform: linux/amd64
+    user: "${TEST_UID:-1000}:${TEST_GID:-1000}"
+    shm_size: 1gb
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./tests/reports:/workspace/tests/reports

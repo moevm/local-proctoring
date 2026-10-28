@@ -634,8 +634,8 @@ window.addEventListener('beforeunload', beforeUnloadHandler);
 window.addEventListener('pagehide', () => {
     // No asynchronous stop can be guaranteed after a tab is destroyed.
     // Already committed chunks stay in OPFS and the recovery index is retained.
-    chrome.storage.local.set({ screenCaptureActive: false, invalidStop: isRecording,
-        bState: isRecording ? 'failedUpload' : bState });
+    chrome.storage.local.set({ screenCaptureActive: false, invalidStop: isRecording || Boolean(stopping),
+        bState: isRecording || stopping ? 'failedUpload' : bState });
 });
 
 window.addEventListener('load', async () => {
@@ -858,6 +858,8 @@ async function finishRecord() {
     chrome.runtime.sendMessage({ type: 'screenCaptureStatus', active: false });
   
     isRecording = false;
+    await buttonsStatesSave('finalizing');
+    await sendButtonsStates('finalizing');
     isPreviewEnabled = false;
     hideMutePreviews();
     updatePreviewButton();
@@ -883,8 +885,6 @@ async function finishRecord() {
 
         console.log("stop_record:", metadata.metadata);
 
-        await buttonsStatesSave('failedUpload');
-        await sendButtonsStates('failedUpload');
 
         logClientAction({ action: "Recording stopped and files saved" });
 
@@ -916,7 +916,6 @@ async function finishRecord() {
         console.error("Ошибка при остановке записи:", error);
         logClientAction({ action: "Fail to stop recording", error: error.message });
         await cleanup();
-        await sendButtonsStates('failedUpload');
         await showModalNotify(['Не удалось полностью сохранить запись.', error.message, 'Не удаляйте локальные файлы.'], 'Ошибка сохранения');
     };
 
@@ -925,6 +924,8 @@ async function finishRecord() {
     await delay(100);
 
     logClientAction('Recording stopping');
+    await buttonsStatesSave('failedUpload');
+    await sendButtonsStates('failedUpload');
 }
 
 async function startRecord() {
