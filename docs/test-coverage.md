@@ -54,8 +54,11 @@
 
 [tester.yml](../.github/workflows/tester.yml) собирает tests/Dockerfile и запускает
 Compose-сервис tests на push / pull request и вручную. Все инструменты находятся
-в образе; по умолчанию выполняются форматирование, ESLint, VERSION, unit,
+в образе. На pull_request выполняются форматирование, ESLint, VERSION, unit,
 HTTP contract и Playwright UI.
+На push и ручном запуске выполняются только статические проверки, VERSION,
+unit и HTTP contract. Playwright UI и выгрузка браузерных отчётов — только
+на pull_request. Локальная команда без override по-прежнему запускает все проверки.
 CI больше не поднимает неактивный server и не запускает исторические Python-тесты.
 Артефакты: JSON, JUnit и HTML-отчёт Playwright, без профилей Chrome и видео.
 

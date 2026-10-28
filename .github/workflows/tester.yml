@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: client-tests-${{ github.workflow }}-${{ github.ref }}
+  group: client-tests-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,12 +22,24 @@ jobs:
           persist-credentials: false
       - name: Build test environment
         run: docker compose build --pull tests
-      - name: Run all checks in the container
+      - name: Run static, unit and contract checks
         env:
           CI: 'true'
-        run: TEST_UID=$(id -u) TEST_GID=$(id -g) docker compose run --rm -e CI tests
+        run: |
+          TEST_UID=$(id -u) TEST_GID=$(id -g) docker compose run --rm -e CI tests sh -c '
+            npm run format:check &&
+            npm run lint &&
+            node ../scripts/check-release-version.js &&
+            npm run test:unit &&
+            npm run test:contract
+          '
+      - name: Run UI tests
+        if: github.event_name == 'pull_request'
+        env:
+          CI: 'true'
+        run: TEST_UID=$(id -u) TEST_GID=$(id -g) docker compose run --rm -e CI tests npm run test:ui
       - name: Upload test reports
-        if: always()
+        if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: client-test-results

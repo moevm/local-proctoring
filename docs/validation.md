@@ -1,5 +1,20 @@
 # Проверки клиента
 
+## Обновление CI — 28.10.2026
+
+- Новая push-команда CI выполнена в Docker: Prettier/ESLint, VERSION,
+  65 unit и 10 HTTP contract. UI не запускался.
+- YAML, shell-синтаксис и условия событий проверены локально. Новый запуск
+  GitHub Actions на момент этой проверки ещё не подтверждён.
+
+
+## Согласование документации — 28.10.2026
+
+- Инструкции сверены с текущими Docker/Compose, тестовыми entrypoints и CI.
+  Добавлена [карта документов](README.md); исторические отчёты отделены от текущего запуска.
+- Проверены локальные Markdown-ссылки и whitespace diff. Код приложения, env,
+  рабочие сервисы и данные не менялись; тесты приложений повторно не запускались.
+
 ## Финализация перед коммитом — 28.10.2026
 
 - Ссылки на основной прокторинг и ML заменены GitHub-ссылками. В рабочем коде,
@@ -38,7 +53,6 @@ Playwright 1.64.1; ESLint 9.39.1 и Prettier 3.6.2 закреплены lock-ф�
 architecture-repeat.log и architecture-selected.log в том же игнорируемом каталоге.
 Инструкция с разбором существующего сценария: [tests/README.md](../tests/README.md).
 
-
 ## Docker / Compose — 26.10.2026
 
 - Docker 29.9.2, Compose 5.6.1: `docker compose build tests` и запуск
@@ -56,7 +70,6 @@ architecture-repeat.log и architecture-selected.log в том же игнори
 
 Отчёты: tests/reports/{results.json,junit.xml,html/}; логи контейнерных прогонов:
 `tests/reports/docker-run.log`, `tests/reports/docker-ci-run.log`.
-
 
 ## Реорганизация тестов и mock API — 26.10.2026
 
@@ -91,7 +104,6 @@ Windows и многочасовая запись остаются отдельн
 
 Инструкция для новых участников: [tests/README.md](../tests/README.md).
 
-
 ## До реорганизации: unit, UI и CI — 26.10.2026
 
 - `npm --prefix tests run test:unit`: 61/61 client и 5/5 version, без skips.
@@ -125,7 +137,6 @@ Unit / coverage: `/tmp/plugin-node24-unit.log`; Chrome stdout: `/tmp/plugin-node
 устойчивость. Callback четырёхчасового предела проверен без ожидания четырёх часов.
 Матрица проверок и оставшиеся границы: [test-coverage.md](test-coverage.md).
 
-
 ## Упаковка GitHub Release — 26.10.2026
 
 - Проверены реальные шаги последнего завершённого job: из 53 секунд 44 занимали
@@ -140,7 +151,6 @@ Unit / coverage: `/tmp/plugin-node24-unit.log`; Chrome stdout: `/tmp/plugin-node
   сохранены. YAML разобран, `unzip -tq` и `git diff --check` прошли.
 - Новая GitHub job / публикация не запускалась. Текущий удалённый job не отменялся;
   локальная правка не меняет уже запущенный workflow. Коммит / push не выполнялись.
-
 
 ## Открытие popup — 25.10.2026
 
