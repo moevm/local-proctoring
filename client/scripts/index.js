@@ -37,7 +37,7 @@ const buttonElements = {
     help: document.querySelector('.help-button'),
 };
 
-if (!session_settings.server_connection && !session_settings.local_video_saving) {
+if ((!session_settings.server_connection || session_settings.server_video_upload !== true) && !session_settings.local_video_saving) {
     // TODO: менять кнопки в зависимости от session_settings.server_connection и session_settings.local_video_saving
     buttonElements.upload.style.display = 'None';
     buttonElements.permissions.style.width = '368px';

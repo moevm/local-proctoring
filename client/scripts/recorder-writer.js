@@ -1,6 +1,6 @@
 // Event callbacks do not await each other. Serialize every OPFS append and
 // wait for the final dataavailable event plus all writes before reading files.
-export function attachRecorderWriter(recorder, getHandle, afterWrite = async () => {}, onError = () => {}) {
+export function attachRecorderWriter(recorder, getHandle, afterWrite = async () => {}, onError = () => {}, onProgressError = console.error) {
     let pending = Promise.resolve();
     let failure;
     let started = false;
@@ -18,7 +18,8 @@ export function attachRecorderWriter(recorder, getHandle, afterWrite = async () 
                 await writer.write({ type: 'write', position: file.size, data: event.data });
                 await writer.close();
             } catch (error) { await writer.abort().catch(() => {}); throw error; }
-            await afterWrite();
+            // The chunk is committed; a progress-metadata error must not stop capture.
+            try { await afterWrite(); } catch (error) { onProgressError(error); }
         }).catch(error => { if (!failure) { failure = error; onError(error); } });
     });
     let stopping;
