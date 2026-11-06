@@ -8,7 +8,7 @@ import { createMockProctoringApi, SESSION_COOKIE } from '../mocks/proctoring-api
 let api, directory;
 beforeEach(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mock-api-contract-'));
-  api = await createMockProctoringApi({ version: '3.1.0', directory });
+  api = await createMockProctoringApi({ version: '3.1.1', directory });
 });
 afterEach(async () => {
   await api.close();
@@ -27,7 +27,7 @@ function sessionForm(values = {}) {
     surname: 'Тестовый',
     name: 'Студент',
     title: 'Mock contract test',
-    plugin_version: '3.1.0',
+    plugin_version: '3.1.1',
     ...values,
   }))
     form.set(key, value);
@@ -52,9 +52,10 @@ function videoForm(id, { camera = true, metadata = {} } = {}) {
   return form;
 }
 
-test('mock requires the session cookie and rejects another owner', async () => {
-  assert.equal((await request('/plugin_policy', { headers: { Cookie: '' } })).status, 401);
+test('policy is public; session status requires login and ownership', async () => {
+  assert.equal((await request('/plugin_policy', { headers: { Cookie: '' } })).status, 200);
   const id = api.createSession({ owner: 'other' });
+  assert.equal((await request('/status/' + id, { headers: { Cookie: '' } })).status, 401);
   assert.equal((await request('/status/' + id)).status, 403);
   assert.equal(
     (await request('/status/' + id, { headers: { Cookie: 'mock_session=other' } })).status,

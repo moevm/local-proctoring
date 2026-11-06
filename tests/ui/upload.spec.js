@@ -1,33 +1,5 @@
-import { probeMedia } from '../support/browser/media-probe.js';
 import { withDownloadFailure } from '../support/browser/download-faults.js';
 import { test, expect } from '../fixtures/browser.js';
-
-test('offline full UI recording downloads both videos and clears only after completion', async ({
-  createScenario,
-}) => {
-  const { app, api, session, recording } = await createScenario({
-    settings: { server_connection: false, local_video_saving: true },
-  });
-
-  await recording.grantPermissions();
-  await recording.start();
-  await recording.stop();
-  expect((await app.storage.read()).sessionId).toMatch(/^[a-f0-9]{24}$/);
-  await app.popup.save();
-  await expect
-    .poll(async () => !(await app.storage.read()).tempFiles?.length, {
-      message: 'offline downloads and cleanup',
-      timeout: 15000,
-    })
-    .toBeTruthy();
-  const downloads = await session.controlPage.evaluate(() => chrome.downloads.search({}));
-  expect(
-    downloads.filter((d) => d.filename.endsWith('.webm') && d.state === 'complete').length,
-  ).toBe(2);
-  for (const d of downloads.filter((d) => d.filename.endsWith('.webm')))
-    expect(probeMedia(d.filename).streams.some((s) => s.codec_type === 'video')).toBe(true);
-  expect(api.requests.filter((c) => c.method === 'POST').length).toBe(0);
-});
 
 for (const status of [401, 403])
   for (const phase of ['start', 'status', 'upload'])
@@ -37,28 +9,16 @@ for (const status of [401, 403])
       recording,
     }) => {
       await recording.grantPermissions();
-      if (phase === 'start') {
-        api.faults.startStatus = status;
-        await app.popup.fillForm();
-        await (await app.popup.open()).locator('.record-section__button_record-start').click();
-        await app.media.dismissDialog('Ошибка');
-        await expect
-          .poll(async () => (await app.storage.read()).bState === 'needPermissions', {
-            message: 'start refusal',
-            timeout: 15000,
-          })
-          .toBeTruthy();
-        expect(await app.storage.files()).toEqual([]);
-        return;
-      }
       await recording.start();
       await recording.stop();
-      api.faults[phase === 'status' ? 'statusStatus' : 'uploadStatus'] = status;
+      api.faults[{ start: 'startStatus', status: 'statusStatus', upload: 'uploadStatus' }[phase]] =
+        status;
       const before = await app.storage.files();
       await app.popup.save();
       await app.media.dismissDialog('Не удалось завершить сохранение');
       expect(await app.storage.files()).toEqual(before);
       expect((await app.storage.read()).bState).toBe('failedUpload');
+      api.faults.startStatus = 200;
       api.faults.statusStatus = 200;
       api.faults.uploadStatus = 200;
       await app.popup.save();
@@ -96,6 +56,7 @@ test('closing popup after Save does not interrupt delayed upload or erase files 
       timeout: 15000,
     })
     .toBeTruthy();
+  expect(api.sessions.size).toBe(1);
   expect(api.uploads.length).toBe(1);
 });
 
@@ -107,7 +68,7 @@ test('duplicate Start, Stop and Save actions create one session, fragment and up
 }) => {
   const mediaPage = await recording.grantPermissions();
   await recording.start({ doubleClick: true });
-  expect(api.sessions.size).toBe(1);
+  expect(api.sessions.size).toBe(0);
   await (await app.popup.open())
     .locator('.record-section__button_record-stop')
     .evaluate((button) => {

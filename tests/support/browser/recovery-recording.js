@@ -57,6 +57,7 @@ export class RecoveryRecording {
       const client = await import('../scripts/upload.js');
       return client.uploadSession({
         server_connection: true,
+        server_video_upload: true,
         local_video_saving: false,
         server_url: url,
       });
@@ -69,6 +70,7 @@ export class RecoveryRecording {
       try {
         await client.uploadSession({
           server_connection: true,
+          server_video_upload: true,
           local_video_saving: false,
           server_url: url,
         });

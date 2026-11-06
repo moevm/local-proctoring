@@ -12,7 +12,7 @@ async function createBackgroundEnvironment(initial = {}, options = {}) {
     storage: { local: saved.local },
     runtime: {
       id: 'trusted',
-      getManifest: () => ({ version: '3.1.0' }),
+      getManifest: () => ({ version: '3.1.1' }),
       getURL: (name) => 'chrome-extension://trusted/' + name,
       onStartup: createChromeEvent(),
       onInstalled: createChromeEvent(),

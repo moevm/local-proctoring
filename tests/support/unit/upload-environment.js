@@ -6,6 +6,7 @@ export const names = [
 ];
 export const settings = {
   server_connection: true,
+  server_video_upload: true,
   local_video_saving: false,
   server_url: 'https://example.test/api/remoteSessions',
 };

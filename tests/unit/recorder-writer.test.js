@@ -62,3 +62,37 @@ test('write failure rejects finalization instead of silently losing data', async
   recorder.dispatchEvent(event);
   await assert.rejects(writer.stop(), /Disk full/);
 });
+
+test('progress metadata failure does not discard committed video or stop later chunks', async () => {
+  const recorder = new EventTarget();
+  recorder.state = 'inactive';
+  let content = '';
+  const errors = [];
+  const fatal = [];
+  const writer = attachRecorderWriter(
+    recorder,
+    () => ({
+      getFile: async () => ({ size: content.length }),
+      createWritable: async () => ({
+        write: async ({ data }) => {
+          content += await data.text();
+        },
+        close: async () => {},
+      }),
+    }),
+    async () => {
+      throw new Error('Metadata storage busy');
+    },
+    (error) => fatal.push(error),
+    (error) => errors.push(error),
+  );
+  for (const value of ['first', 'second']) {
+    const event = new Event('dataavailable');
+    event.data = new Blob([value]);
+    recorder.dispatchEvent(event);
+  }
+  await writer.stop();
+  assert.equal(content, 'firstsecond');
+  assert.equal(errors.length, 2);
+  assert.equal(fatal.length, 0);
+});
