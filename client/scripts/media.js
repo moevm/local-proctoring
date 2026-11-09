@@ -526,6 +526,9 @@ async function getMediaDevices() {
                     combinedPreview.muted = false;
                     isPreviewEnabled = true;
 
+                    const micIndicator = document.querySelector('.mic-indicator');
+                    if (micIndicator) micIndicator.style.display = streams.microphone ? 'block' : 'none';
+
                     recorders.combined = createScreenMediaRecorder();
 
                     logClientAction({ action: "Create combined recorder" });
@@ -562,6 +565,9 @@ function hideMutePreviews() {
     combinedPreview.style.display = 'none';
     combinedPreview.muted = true;
 
+    const micIndicator = document.querySelector('.mic-indicator');
+    if (micIndicator) micIndicator.style.display = 'none';
+
     logClientAction({ action: "Hide and mute previews" });
 }
 
@@ -578,6 +584,9 @@ previewButton.addEventListener('click', () => {
     const displayValue = isPreviewEnabled ? 'block' : 'none';
     cameraPreview.style.display = displayValue;
     combinedPreview.style.display = displayValue;
+
+    const micIndicator = document.querySelector('.mic-indicator');
+    if (micIndicator) micIndicator.style.display = isPreviewEnabled ? 'block' : 'none';
 
     logClientAction(isPreviewEnabled ? { action: "Enable preview mode" } : { action: "Disable preview mode" });
 
@@ -1009,6 +1018,7 @@ async function startRecord() {
             recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
+        combinedPreview.muted = true;
         //isPreviewEnabled = false;
         //hideMutePreviews();
         updatePreviewButton();
