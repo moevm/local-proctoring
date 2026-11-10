@@ -22,12 +22,12 @@ test('actual recording, preview, stop button and upload preserve audio routing',
 }) => {
   const media = await recording.grantPermissions();
   await recording.start();
-  expect(await media.locator('.combined__preview').isVisible()).toBe(false);
-  await media.locator('#preview-toggle-btn').click();
   expect(await media.locator('.combined__preview').isVisible()).toBe(true);
+  await media.locator('#preview-toggle-btn').click();
+  expect(await media.locator('.combined__preview').isVisible()).toBe(false);
   expect(await media.locator('.combined__preview').evaluate((v) => v.muted)).toBe(true);
   await media.locator('#preview-toggle-btn').click();
-  expect(await media.locator('.combined__preview').isVisible()).toBe(false);
+  expect(await media.locator('.combined__preview').isVisible()).toBe(true);
   await recording.stop();
   const page = await app.popup.open();
   await page.locator('.record-section__button_upload').click();
