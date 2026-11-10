@@ -40,6 +40,7 @@ var combinedPreview = document.querySelector('.combined__preview');
 var cameraPreview = document.querySelector('.camera__preview');
 
 var previewButton = document.getElementById('preview-toggle-btn');
+var audioToggleCheckbox = document.getElementById('audio-toggle-checkbox');
 var isRecording = false;
 let stopping = null;
 let starting = false;
@@ -48,6 +49,7 @@ const writers = new Map();
 let micAudioContext = null;
 let micAnimation = null;
 var isPreviewEnabled = false;
+var isAudioEnabled = false;
 
 var combinedFileName = null;
 var cameraFileName = null;
@@ -353,20 +355,22 @@ async function getMediaDevices() {
                         micSourceNode.connect(analyser);
 
                         const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                        const micIcon = document.getElementById('mic-fill');
 
                         function updateMicFillLoop() {
                             if (micAudioContext !== audioCtx) return;
-                            analyser.getByteTimeDomainData(dataArray);
 
-                            let sum = 0;
-                            for (let i = 0; i < dataArray.length; i++) {
-                                const v = dataArray[i] / 128 - 1;
-                                sum += v * v;
+                            if (isAudioEnabled) {
+                                analyser.getByteTimeDomainData(dataArray);
+
+                                let sum = 0;
+                                for (let i = 0; i < dataArray.length; i++) {
+                                    const v = dataArray[i] / 128 - 1;
+                                    sum += v * v;
+                                }
+                                const rms = Math.sqrt(sum / dataArray.length);
+
+                                updateMicFill(rms);
                             }
-                            const rms = Math.sqrt(sum / dataArray.length);
-
-                            updateMicFill(rms);
 
                             micAnimation = requestAnimationFrame(updateMicFillLoop);
                         }
@@ -523,7 +527,14 @@ async function getMediaDevices() {
                     cameraPreview.style.display =  streams.camera ? 'block' : 'none';
                     combinedPreview.style.display = 'block';
 
-                    combinedPreview.muted = true;
+                    combinedPreview.muted = false;
+                    isPreviewEnabled = true;
+
+                    updateAudioToggleState();
+                    if (!isAudioEnabled) {
+                        const fill = document.querySelector('.mic-fill');
+                        if (fill) fill.style.transform = 'translateY(100%)';
+                    }
 
                     recorders.combined = createScreenMediaRecorder();
 
@@ -561,6 +572,8 @@ function hideMutePreviews() {
     combinedPreview.style.display = 'none';
     combinedPreview.muted = true;
 
+    updateMicIndicatorVisibility();
+
     logClientAction({ action: "Hide and mute previews" });
 }
 
@@ -583,11 +596,57 @@ previewButton.addEventListener('click', () => {
     updatePreviewButton();
 });
 
+if (audioToggleCheckbox) {
+    audioToggleCheckbox.addEventListener('change', () => {
+        if (audioToggleCheckbox.disabled) {
+            audioToggleCheckbox.checked = isAudioEnabled;
+            return;
+        }
+        setAudioEnabled(audioToggleCheckbox.checked);
+    });
+}
+
+async function loadAudioPreference() {
+    const saved = (await chrome.storage.local.get('previewAudioEnabled')).previewAudioEnabled;
+    isAudioEnabled = saved !== false;
+    updateAudioToggleState();
+    logClientAction({ action: "Load audio preference", isAudioEnabled: isAudioEnabled.toString() });
+}
+
+function setAudioEnabled(enabled) {
+    isAudioEnabled = enabled;
+    chrome.storage.local.set({ previewAudioEnabled: enabled });
+
+    if (!enabled) {
+        const fill = document.querySelector('.mic-fill');
+        if (fill) fill.style.transform = 'translateY(100%)';
+    }
+
+    updateAudioToggleState();
+    updateMicIndicatorVisibility();
+    logClientAction({ action: enabled ? "Enable mic indicator" : "Disable mic indicator" });
+}
+
+function updateAudioToggleState() {
+    if (!audioToggleCheckbox) return;
+    audioToggleCheckbox.checked = isAudioEnabled;
+    audioToggleCheckbox.disabled = !isPreviewEnabled || !streams.microphone;
+    updateMicIndicatorVisibility();
+}
+
+function updateMicIndicatorVisibility() {
+    const micIndicator = document.querySelector('.mic-indicator');
+    if (!micIndicator) return;
+    const visible = isPreviewEnabled && isAudioEnabled && Boolean(streams.microphone);
+    micIndicator.style.display = visible ? 'block' : 'none';
+}
+
 function updatePreviewButton() {
     if (!isRecording) {
         previewButton.disabled = true;
         previewButton.textContent = 'Включить';
         previewButton.classList.remove('enabled', 'disabled');
+        updateAudioToggleState();
         logClientAction({ action: "Update preview button - not recording" });
         return;
     }
@@ -597,6 +656,7 @@ function updatePreviewButton() {
     previewButton.classList.toggle('enabled', !isPreviewEnabled);
     previewButton.classList.toggle('disabled', isPreviewEnabled);
 
+    updateAudioToggleState();
     logClientAction({ action: "Update preview button", previewEnabled: isPreviewEnabled.toString() });
 }
 
@@ -641,6 +701,8 @@ window.addEventListener('pagehide', () => {
 window.addEventListener('load', async () => {
     console.log(await need_init());
     logClientAction({ action: "Load media.html tab" });
+
+    await loadAudioPreference();
 
     const savedState = await chrome.storage.local.get(['bState', 'tempFiles']);
     await updateInvalidStopValue(savedState.bState === 'recording');
@@ -1008,8 +1070,9 @@ async function startRecord() {
             recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
-        isPreviewEnabled = false;
-        hideMutePreviews();
+        combinedPreview.muted = true;
+        //isPreviewEnabled = false;
+        //hideMutePreviews();
         updatePreviewButton();
 
         console.log('Запись начата');
