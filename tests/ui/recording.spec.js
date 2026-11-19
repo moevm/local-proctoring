@@ -24,17 +24,11 @@ test('actual recording, preview, stop button and upload preserve audio routing',
   const preview = media.locator('.combined__preview');
   const audioToggle = media.locator('#audio-toggle-checkbox');
   expect(await preview.isVisible()).toBe(true);
-  expect(
-    await preview.evaluate((video) => video.srcObject.getAudioTracks().length),
-  ).toBe(1);
+  expect(await preview.evaluate((video) => video.srcObject.getAudioTracks().length)).toBe(1);
   expect(await preview.evaluate((video) => video.muted)).toBe(false);
   await audioToggle.uncheck();
   expect(await preview.evaluate((video) => video.muted)).toBe(true);
-  expect(
-    await preview.evaluate(
-      (video) => video.srcObject.getAudioTracks()[0].enabled,
-    ),
-  ).toBe(true);
+  expect(await preview.evaluate((video) => video.srcObject.getAudioTracks()[0].enabled)).toBe(true);
   await recording.start();
   expect(await preview.isVisible()).toBe(true);
   expect(await preview.evaluate((video) => video.muted)).toBe(true);
@@ -62,12 +56,8 @@ test('actual recording, preview, stop button and upload preserve audio routing',
   expect(api.uploads[0].files.length).toBe(2);
   for (const file of api.uploads[0].files) {
     const streams = probeMedia(file.file).streams;
-    expect(
-      streams.filter((stream) => stream.codec_type === 'video').length,
-    ).toBe(1);
-    expect(
-      streams.filter((stream) => stream.codec_type === 'audio').length,
-    ).toBe(
+    expect(streams.filter((stream) => stream.codec_type === 'video').length).toBe(1);
+    expect(streams.filter((stream) => stream.codec_type === 'audio').length).toBe(
       file.field === 'camera_video' ? 1 : 0,
     );
   }
