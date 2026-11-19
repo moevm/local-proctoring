@@ -511,13 +511,20 @@ async function getMediaDevices() {
 
                     streams.combined = new MediaStream(combinedStreams);
 
-                    combinedPreview.srcObject = streams.combined;
-                    cameraPreview.srcObject = streams.camera;
+                    const previewTracks = [
+                        streams.screen.getVideoTracks()[0],
+                        ...(streams.microphone?.getAudioTracks() || [])
+                    ];
+
+                    combinedPreview.srcObject = new MediaStream(previewTracks);
 
                     combinedPreview.onloadedmetadata = function () {
                         combinedPreview.width = combinedPreview.videoWidth > 1280 ? 1280 : combinedPreview.videoWidth;
                         combinedPreview.height = combinedPreview.videoHeight > 720 ? 720 : combinedPreview.videoHeight;
                     };
+
+                    combinedPreview.srcObject = new MediaStream(previewTracks);
+                    cameraPreview.srcObject = streams.camera;
 
                     cameraPreview.onloadedmetadata = function () {
                         cameraPreview.width = 320;
@@ -527,10 +534,10 @@ async function getMediaDevices() {
                     cameraPreview.style.display =  streams.camera ? 'block' : 'none';
                     combinedPreview.style.display = 'block';
 
-                    combinedPreview.muted = false;
                     isPreviewEnabled = true;
-
+                    updatePreviewAudioState();
                     updateAudioToggleState();
+
                     if (!isAudioEnabled) {
                         const fill = document.querySelector('.mic-fill');
                         if (fill) fill.style.transform = 'translateY(100%)';
@@ -583,13 +590,13 @@ previewButton.addEventListener('click', () => {
         return;
     }
 
-    combinedPreview.muted = true;
-
     isPreviewEnabled = !isPreviewEnabled;
 
     const displayValue = isPreviewEnabled ? 'block' : 'none';
     cameraPreview.style.display = displayValue;
     combinedPreview.style.display = displayValue;
+
+    updatePreviewAudioState();
 
     logClientAction(isPreviewEnabled ? { action: "Enable preview mode" } : { action: "Disable preview mode" });
 
@@ -617,6 +624,8 @@ function setAudioEnabled(enabled) {
     isAudioEnabled = enabled;
     chrome.storage.local.set({ previewAudioEnabled: enabled });
 
+    updatePreviewAudioState();
+
     if (!enabled) {
         const fill = document.querySelector('.mic-fill');
         if (fill) fill.style.transform = 'translateY(100%)';
@@ -624,7 +633,15 @@ function setAudioEnabled(enabled) {
 
     updateAudioToggleState();
     updateMicIndicatorVisibility();
+
     logClientAction({ action: enabled ? "Enable mic indicator" : "Disable mic indicator" });
+}
+
+function updatePreviewAudioState() {
+    combinedPreview.muted =
+        !isPreviewEnabled ||
+        !isAudioEnabled ||
+        !streams.microphone;
 }
 
 function updateAudioToggleState() {
@@ -1070,9 +1087,7 @@ async function startRecord() {
             recorders.camera.start(video_settings.video_saving_interval);
 
         isRecording = true;
-        combinedPreview.muted = true;
-        //isPreviewEnabled = false;
-        //hideMutePreviews();
+        updatePreviewAudioState();
         updatePreviewButton();
 
         console.log('Запись начата');
