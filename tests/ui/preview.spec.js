@@ -1,3 +1,4 @@
+import { probeMedia } from '../support/browser/media-probe.js';
 import { test, expect } from '../fixtures/browser.js';
 test('preview stays visible after recording starts', async ({ recording }) => {
   const media = await recording.grantPermissions();
@@ -63,7 +64,7 @@ test('preview audio works without camera', async ({ createScenario }) => {
       camera: 'NotAllowedError',
     },
   });
-  const { app, recording } = scenario;
+  const { app, api, recording } = scenario;
   const media = await recording.requestPermissions();
   await media.locator('#modal-confirm-yes').click();
   await media.locator('#modal-close-btn').click();
@@ -77,13 +78,34 @@ test('preview audio works without camera', async ({ createScenario }) => {
   await expect(audioToggle).toBeChecked();
   expect(await preview.evaluate((video) => video.srcObject.getVideoTracks().length)).toBe(1);
   expect(await preview.evaluate((video) => video.srcObject.getAudioTracks().length)).toBe(1);
-  expect(await preview.evaluate((video) => video.muted)).toBe(false);
   await recording.start();
-  await expect(preview).toBeVisible();
   await audioToggle.uncheck();
   expect(await preview.evaluate((video) => video.muted)).toBe(true);
   expect(await preview.evaluate((video) => video.srcObject.getAudioTracks()[0].enabled)).toBe(true);
+  await media.locator('#preview-toggle-btn').click();
+  await expect(preview).toBeHidden();
+  expect(await preview.evaluate((video) => video.muted)).toBe(true);
+  expect(await preview.evaluate((video) => video.srcObject.getAudioTracks()[0].enabled)).toBe(true);
   await recording.stop();
+  const page = await app.popup.open();
+  await page.locator('.record-section__button_upload').click();
+  await expect
+    .poll(() => api.uploads.length === 1, {
+      message: 'upload received',
+      timeout: 15000,
+    })
+    .toBeTruthy();
+  await expect
+    .poll(async () => !(await app.storage.read()).tempFiles?.length, {
+      message: 'ACK cleanup',
+      timeout: 15000,
+    })
+    .toBeTruthy();
+  expect(api.uploads[0].files.length).toBe(1);
+  const streams = probeMedia(api.uploads[0].files[0].file).streams;
+  expect(streams.filter((stream) => stream.codec_type === 'video').length).toBe(1);
+  expect(streams.filter((stream) => stream.codec_type === 'audio').length).toBe(1);
+  expect((await app.storage.files()).length).toBe(0);
 });
 
 test('preview works without microphone', async ({ createScenario }) => {
