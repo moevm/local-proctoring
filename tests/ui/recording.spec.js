@@ -1,4 +1,4 @@
-import { probeMedia } from '../support/browser/media-probe.js';
+import { probeMedia, probeAudioRms } from '../support/browser/media-probe.js';
 import { test, expect } from '../fixtures/browser.js';
 test('four-hour stop deadline invokes normal finalization without deleting video', async ({
   app,
@@ -60,6 +60,7 @@ test('actual recording, preview, stop button and upload preserve audio routing',
     expect(streams.filter((stream) => stream.codec_type === 'audio').length).toBe(
       file.field === 'camera_video' ? 1 : 0,
     );
+    if (file.field === 'camera_video') expect(probeAudioRms(file.file)).toBeGreaterThan(0.001);
   }
   expect((await app.storage.files()).length).toBe(0);
 });

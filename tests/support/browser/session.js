@@ -43,6 +43,7 @@ export async function launchExtensionSession(
     ignoreDefaultArgs: ['--disable-extensions'],
     args: [
       '--no-sandbox',
+      '--mute-audio',
       '--ozone-platform=x11',
       '--enable-unsafe-extension-debugging',
       '--use-fake-device-for-media-stream',

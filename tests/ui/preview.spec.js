@@ -1,4 +1,4 @@
-import { probeMedia } from '../support/browser/media-probe.js';
+import { probeMedia, probeAudioRms } from '../support/browser/media-probe.js';
 import { test, expect } from '../fixtures/browser.js';
 test('preview stays visible after recording starts', async ({ recording }) => {
   const media = await recording.grantPermissions();
@@ -23,6 +23,17 @@ test('audio toggle controls preview audio and saves preference', async ({ app, r
   expect(await preview.evaluate((video) => video.srcObject.getAudioTracks()[0].enabled)).toBe(true);
   expect((await app.storage.read()).previewAudioEnabled).toBe(true);
 });
+
+for (const enabled of [false, true]) {
+  test('restores saved preview audio preference: ' + enabled, async ({ app, recording }) => {
+    await app.storage.set({ previewAudioEnabled: enabled });
+    const media = await recording.grantPermissions();
+    await expect(media.locator('#audio-toggle-checkbox')).toBeChecked({ checked: enabled });
+    expect(await media.locator('.combined__preview').evaluate((video) => video.muted)).toBe(
+      !enabled,
+    );
+  });
+}
 
 test('hiding preview mutes audio and restores selected audio setting', async ({ recording }) => {
   const media = await recording.grantPermissions();
@@ -102,9 +113,12 @@ test('preview audio works without camera', async ({ createScenario }) => {
     })
     .toBeTruthy();
   expect(api.uploads[0].files.length).toBe(1);
-  const streams = probeMedia(api.uploads[0].files[0].file).streams;
+  const file = api.uploads[0].files[0].file;
+  const streams = probeMedia(file).streams;
   expect(streams.filter((stream) => stream.codec_type === 'video').length).toBe(1);
   expect(streams.filter((stream) => stream.codec_type === 'audio').length).toBe(1);
+  // Chrome's synthetic microphone must remain audible in the recording.
+  expect(probeAudioRms(file)).toBeGreaterThan(0.001);
   expect((await app.storage.files()).length).toBe(0);
 });
 
