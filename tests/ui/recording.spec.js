@@ -1,4 +1,4 @@
-import { probeMedia } from '../support/browser/media-probe.js';
+import { probeMedia, probeAudioRms } from '../support/browser/media-probe.js';
 import { test, expect } from '../fixtures/browser.js';
 test('four-hour stop deadline invokes normal finalization without deleting video', async ({
   app,
@@ -21,18 +21,31 @@ test('actual recording, preview, stop button and upload preserve audio routing',
   recording,
 }) => {
   const media = await recording.grantPermissions();
+  const preview = media.locator('.combined__preview');
+  const audioToggle = media.locator('#audio-toggle-checkbox');
+  expect(await preview.isVisible()).toBe(true);
+  expect(await preview.evaluate((video) => video.srcObject.getAudioTracks().length)).toBe(1);
+  expect(await preview.evaluate((video) => video.muted)).toBe(false);
+  await audioToggle.uncheck();
+  expect(await preview.evaluate((video) => video.muted)).toBe(true);
+  expect(await preview.evaluate((video) => video.srcObject.getAudioTracks()[0].enabled)).toBe(true);
   await recording.start();
-  expect(await media.locator('.combined__preview').isVisible()).toBe(false);
+  expect(await preview.isVisible()).toBe(true);
+  expect(await preview.evaluate((video) => video.muted)).toBe(true);
   await media.locator('#preview-toggle-btn').click();
-  expect(await media.locator('.combined__preview').isVisible()).toBe(true);
-  expect(await media.locator('.combined__preview').evaluate((v) => v.muted)).toBe(true);
+  expect(await preview.isVisible()).toBe(false);
+  expect(await preview.evaluate((video) => video.muted)).toBe(true);
   await media.locator('#preview-toggle-btn').click();
-  expect(await media.locator('.combined__preview').isVisible()).toBe(false);
+  expect(await preview.isVisible()).toBe(true);
+  expect(await preview.evaluate((video) => video.muted)).toBe(true);
   await recording.stop();
   const page = await app.popup.open();
   await page.locator('.record-section__button_upload').click();
   await expect
-    .poll(() => api.uploads.length === 1, { message: 'upload received', timeout: 15000 })
+    .poll(() => api.uploads.length === 1, {
+      message: 'upload received',
+      timeout: 15000,
+    })
     .toBeTruthy();
   await expect
     .poll(async () => !(await app.storage.read()).tempFiles?.length, {
@@ -47,6 +60,7 @@ test('actual recording, preview, stop button and upload preserve audio routing',
     expect(streams.filter((stream) => stream.codec_type === 'audio').length).toBe(
       file.field === 'camera_video' ? 1 : 0,
     );
+    if (file.field === 'camera_video') expect(probeAudioRms(file.file)).toBeGreaterThan(0.001);
   }
   expect((await app.storage.files()).length).toBe(0);
 });

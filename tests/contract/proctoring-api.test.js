@@ -99,8 +99,9 @@ test('start validates required fields, field limits and plugin version', async (
 
 test('server policy blocks starting with 426 but permits existing-session status', async () => {
   const id = api.createSession();
-  api.policy.blockedVersions = ['3.1'];
-  const response = await request('/start_session', { method: 'POST', body: sessionForm() });
+  const form = sessionForm();
+  api.policy.blockedVersions = [form.get('plugin_version')];
+  const response = await request('/start_session', { method: 'POST', body: form });
   assert.equal(response.status, 426);
   assert.equal((await response.json()).code, 'PLUGIN_UPDATE_REQUIRED');
   assert.equal((await request('/status/' + id)).status, 200);
