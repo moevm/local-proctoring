@@ -132,7 +132,6 @@ async function createMockProctoringApi({ version, directory, port = 0 }) {
     const owner = /(?:^|;\s*)mock_session=(student|other)(?:;|$)/.exec(
       request.headers.cookie || '',
     )?.[1];
-    if (!owner) return reply(response, 401, { error: 'Login required' });
     if (request.method === 'GET' && route === '/plugin_policy') {
       if (api.faults.policyResponse === 'hang') return;
       if (api.faults.policyResponse === 'hang-body') {
@@ -147,6 +146,7 @@ async function createMockProctoringApi({ version, directory, port = 0 }) {
       }
       return reply(response, api.faults.policyStatus, api.policy);
     }
+    if (!owner) return reply(response, 401, { error: 'Login required' });
     if (request.method === 'GET' && route.startsWith('/status/')) {
       const session = findSession(route.slice('/status/'.length), owner, response);
       if (!session) return;

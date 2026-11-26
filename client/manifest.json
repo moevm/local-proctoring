@@ -1,7 +1,7 @@
 {
   "name": "Local proctoring",
   "description": "Local recording tool containing screen, microphone and camera.",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy62qMaIW8d2GJP798g8RiU/pbvBqh62Tue8MBELtBUBFEDq3dtJDIYFz0Qi87CE4X+lj9qJMLP22cICXsnVkVQx44ppyvFFBXBZCcRb0s3nKCjDLPGZvjF7DdtznuHCJFu7qBNwePPMSLqO0V+js9zxf13zCDBKV1t8+iFmkP8+a62FBEfVXMvCaI6eHjDI8wPUUerjrl3v/HgWINRYFFxloFO+CK5+IE2h5JMWYiBd4wwrEz9HHj72hyPX90nSEuTCu0wpB7oND6hyEN2QanfVYURVYWQy/idCXLHceMO+yDuwaLodsoEKlHzFAJQwYCiLK0sIK5WOm3omLakCbxwIDAQAB",
   "permissions": [

@@ -14,10 +14,7 @@ async function seedOngoingRecording(app) {
   await app.storage.set({ bState: 'recording' });
 }
 
-test('opening popup checks authenticated policy and shows the update link', async ({
-  app,
-  api,
-}) => {
+test('opening popup checks public policy and shows the update link', async ({ app, api }) => {
   const popup = await reopenWithPolicy(app, api, {
     latestVersion: '999.0.0',
     downloadUrl: 'https://updates.example.test/plugin.zip',
@@ -90,18 +87,21 @@ test('untrusted download URL and malformed policy do not inject HTML', async ({ 
 });
 
 for (const failure of ['401', '503', 'JSON', 'timeout']) {
-  test(`policy failure ${failure} preserves recording and controls`, async ({
-    app,
-    api,
-    session,
-  }) => {
+  test(`policy failure ${failure} preserves recording and controls`, async ({ app, api }) => {
     await seedOngoingRecording(app);
     const before = await app.storage.files();
-    if (failure === '401') await session.context.clearCookies();
+    if (failure === '401') api.faults.policyStatus = 401;
     if (failure === '503') api.faults.policyStatus = 503;
     if (failure === 'JSON') api.faults.policyResponse = 'malformed';
     if (failure === 'timeout') api.faults.policyResponse = 'hang-body';
     const popup = await app.popup.open();
+    if (failure === 'timeout') {
+      await popup.addInitScript(() => {
+        const schedule = window.setTimeout.bind(window);
+        window.setTimeout = (callback, delay, ...args) =>
+          schedule(callback, delay === 120000 ? 100 : delay, ...args);
+      });
+    }
     await popup.reload();
     await expect(popup.locator('#plugin-update-notice')).toContainText(
       'Не удалось проверить обновления',
@@ -185,24 +185,13 @@ test('native Chrome action popup checks updates and closes on focus loss without
   expect((await app.storage.read()).bState).toBe('failedUpload');
 });
 
-test('policy request failure before real Start keeps files empty and explains refusal', async ({
-  app,
-  api,
-  recording,
-}) => {
-  await recording.grantPermissions();
-  await app.popup.fillForm();
+test('policy unavailability does not prevent local recording', async ({ app, api, recording }) => {
   api.faults.policyStatus = 503;
-  await (await app.popup.open()).locator('.record-section__button_record-start').click();
-  await app.media.dismissDialog('Запись не начата');
-  await expect
-    .poll(async () => (await app.storage.read()).bState === 'needPermissions', {
-      message: 'policy refusal state',
-      timeout: 15000,
-    })
-    .toBeTruthy();
-  expect(await app.storage.files()).toEqual([]);
+  await recording.grantPermissions();
+  await recording.start();
   expect(api.sessions.size).toBe(0);
+  await recording.stop();
+  expect((await app.storage.files()).length).toBeGreaterThan(0);
 });
 
 for (const kind of ['unknown', 'unsupported'])
@@ -226,6 +215,6 @@ for (const kind of ['unknown', 'unsupported'])
           ? 'Версия расширения не найдена среди выпущенных'
           : 'Версия расширения не поддерживается';
       await page.locator('#plugin-update-notice strong').filter({ hasText: title }).waitFor();
-      expect((await app.storage.read()).bState).toBe('needPermissions');
+      await expect.poll(async () => (await app.storage.read()).bState).toBe('needPermissions');
       expect(api.sessions.size).toBe(0);
     });

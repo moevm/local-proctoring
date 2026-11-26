@@ -2,12 +2,12 @@ import { saveBlobToFile, deleteFiles, buttonsStatesSave } from './common.js';
 import { flushLogs, prepareLogs } from './logger.js';
 
 export async function requestJSON(url, options = {}) {
-    const { timeoutMs = 30000, signal, ...request } = options;
+    const { timeoutMs = 120000, signal, ...request } = options;
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    const timer = setTimeout(abort, timeoutMs);
+    const timer = setTimeout(abort, Math.min(timeoutMs, 120000));
     try {
     const response = await fetch(url, { ...request, signal: controller.signal, credentials: 'include' });
     let data;
@@ -76,16 +76,34 @@ async function inventory(names, allowMissing = false) {
 }
 
 export async function uploadSession(settings) {
+    const sendToServer = settings.server_connection && settings.server_video_upload === true;
     await flushLogs();
-    const { tempFiles = [], sessionId, extension_logs, metadata = {}, uploadAttempt } =
-        await chrome.storage.local.get(['tempFiles', 'sessionId', 'extension_logs', 'metadata', 'uploadAttempt']);
-    if (!settings.server_connection && !settings.local_video_saving) throw new Error('Не выбран способ сохранения');
+    const { tempFiles = [], sessionId: savedSessionId, extension_logs, metadata = {}, uploadAttempt } =
+        await chrome.storage.local.get(['tempFiles', 'sessionId', 'extension_logs', 'metadata', 'uploadAttempt', 'pendingSession']);
+    let sessionId = savedSessionId;
+    if (settings.local_video_saving) {
+        const localForm = await buildPayload(tempFiles, sessionId, metadata, extension_logs);
+        for (const [name, file] of localForm) {
+            if (file instanceof Blob) await saveBlobToFile(file, name === 'logs' ? 'extension_logs_' + sessionId + '.json' : file.name);
+        }
+    }
+    if (!sendToServer && !settings.local_video_saving) throw new Error('Не выбран способ сохранения');
     if (!/^[a-f0-9]{24}$/i.test(sessionId)) throw new Error('Нет ID сессии');
     await buttonsStatesSave('uploading');
     let confirmed = false;
     let snapshot;
-    if (settings.server_connection) {
+    if (sendToServer) {
         const base = settings.server_url.replace(/\/$/, '');
+        const { pendingSession } = await chrome.storage.local.get('pendingSession');
+        if (pendingSession) {
+            const form = new FormData();
+            for (const [key, value] of Object.entries(pendingSession)) form.append(key, value);
+            const created = await requestJSON(base + '/start_session', { method: 'POST', body: form });
+            if (!/^[a-f0-9]{24}$/i.test(created.id)) throw new Error('Сервер не вернул ID сессии');
+            sessionId = created.id;
+            await chrome.storage.local.set({ sessionId });
+            await chrome.storage.local.remove('pendingSession');
+        }
         // Recover the server ACK before opening any local files or downloading again.
         const status = await requestJSON(base + '/status/' + sessionId);
         if (typeof status.videosSaved !== 'boolean') throw new Error('Несовместимый ответ API статуса');
@@ -106,22 +124,17 @@ export async function uploadSession(settings) {
     if (!confirmed) {
         snapshot = await inventory(tempFiles);
         const form = await buildPayload(tempFiles, sessionId, metadata, extension_logs);
-        if (settings.local_video_saving) {
-            for (const [name, file] of form) {
-                if (file instanceof Blob) await saveBlobToFile(file, name === 'logs' ? 'extension_logs_' + sessionId + '.json' : file.name);
-            }
-        }
-        if (settings.server_connection) {
+        if (sendToServer) {
             const base = settings.server_url.replace(/\/$/, '');
             await chrome.storage.local.set({ uploadAttempt: { sessionId, server: base, files: snapshot } });
-            const result = await requestJSON(base + '/upload_video', { method: 'POST', body: form, timeoutMs: 900000 });
+            const result = await requestJSON(base + '/upload_video', { method: 'POST', body: form, timeoutMs: 120000 });
             if (result.success !== true || result.videosSaved !== true) throw new Error('Сервер не подтвердил сохранение. Локальные файлы не удалены.');
         }
     }
     await deleteFiles(snapshot.map(file => file.name));
     const remaining = await chrome.storage.local.get('tempFiles');
     if (remaining.tempFiles?.length) throw new Error('Остались неотправленные файлы. Локальные записи сохранены.');
-    await chrome.storage.local.remove(['metadata', 'sessionId', 'fileNames', 'recording_start', 'recording_end', 'uploadAttempt']);
+    await chrome.storage.local.remove(['metadata', 'sessionId', 'fileNames', 'recording_start', 'recording_end', 'uploadAttempt', 'pendingSession']);
     await chrome.storage.local.set({ session_status: 'need_init', invalidStop: false });
     await buttonsStatesSave('needPermissions');
 }

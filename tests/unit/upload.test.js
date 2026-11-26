@@ -294,3 +294,51 @@ test('invalid JSON and an already aborted signal reject without confirmation', a
   );
   assert.equal(environment.disk.size, 2);
 });
+
+test('offline session registers on upload and retains files when authentication fails', async () => {
+  environment.state.pendingSession = { plugin_version: '3.1.1', title: 'test' };
+  environment.fetch = async (url) => {
+    assert.ok(url.endsWith('/start_session'));
+    return { ok: false, status: 401, json: async () => ({}) };
+  };
+  await assert.rejects(environment.client.uploadSession(settings), /Войдите/);
+  assert.equal(environment.disk.size, 2);
+  assert.ok(environment.state.pendingSession);
+});
+
+test('registered offline session retries existing server session after upload failure', async () => {
+  const serverId = 'abcdefabcdefabcdefabcdef';
+  environment.state.pendingSession = { plugin_version: '3.1.1' };
+  const calls = [];
+  environment.fetch = async (url) => {
+    calls.push(url);
+    if (url.endsWith('/start_session')) return { ok: true, json: async () => ({ id: serverId }) };
+    if (url.includes('/status/')) return { ok: true, json: async () => ({ videosSaved: false }) };
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+  await assert.rejects(environment.client.uploadSession(settings));
+  await assert.rejects(environment.client.uploadSession(settings));
+  assert.equal(calls.filter((url) => url.endsWith('/start_session')).length, 1);
+  assert.equal(environment.state.sessionId, serverId);
+  assert.equal(environment.disk.size, 2);
+});
+
+test('disabled video upload saves locally without registration or status requests', async () => {
+  environment.fetch = async () => assert.fail('Video saving must not contact the server');
+  await environment.client.uploadSession({
+    ...settings,
+    server_video_upload: false,
+    local_video_saving: true,
+  });
+  assert.equal(environment.disk.size, 0);
+  assert.equal(environment.state.sessionId, undefined);
+});
+
+test('disabled video upload without local saving preserves originals', async () => {
+  environment.fetch = async () => assert.fail('Server request is disabled');
+  await assert.rejects(
+    environment.client.uploadSession({ ...settings, server_video_upload: false }),
+    /Не выбран способ сохранения/,
+  );
+  assert.equal(environment.disk.size, 2);
+});

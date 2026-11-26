@@ -5,7 +5,11 @@ import { installMediaControls } from './media-controls.js';
 import { CLIENT_ROOT, MANIFEST, EXTENSION_URL } from '../paths.js';
 
 /** Owns a Chrome process and an unpacked copy. It does not click UI or own the HTTP mock. */
-export async function launchExtensionSession(directory, api, { settings = {}, faults = {} } = {}) {
+export async function launchExtensionSession(
+  directory,
+  api,
+  { settings = {}, faults = {}, recordingIntervalMs = 200 } = {},
+) {
   const executablePath = process.env.CHROME_PATH;
   if (!executablePath)
     throw new Error('CHROME_PATH is required. Run tests through Docker Compose.');
@@ -19,10 +23,11 @@ export async function launchExtensionSession(directory, api, { settings = {}, fa
   Object.assign(config.session_settings, {
     server_url: api.url,
     server_connection: true,
+    server_video_upload: true,
     local_video_saving: false,
     ...settings,
   });
-  config.video_settings.video_saving_interval = 200;
+  config.video_settings.video_saving_interval = recordingIntervalMs;
   for (const kind of ['screen', 'camera'])
     Object.assign(config.video_settings[kind], {
       width: { ideal: 320, min: 160, max: 640 },

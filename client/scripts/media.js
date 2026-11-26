@@ -7,8 +7,8 @@ import { getCurrentDateString, setReadyToUploadContainer, parseDateString } from
 import { logClientAction, flushLogs, checkAndCleanLogs } from './logger.js';
 
 import { attachRecorderWriter } from './recorder-writer.js';
-import { requestJSON, uploadSession, assertCanResume } from './upload.js';
-import { pluginVersion, checkPluginPolicy } from './plugin-policy.js';
+import { uploadSession, assertCanResume } from './upload.js';
+import { pluginVersion } from './plugin-policy.js';
 
 import settings from '../settings.json' with { type: "json" };
 
@@ -45,6 +45,7 @@ var isRecording = false;
 let stopping = null;
 let starting = false;
 let uploadTask = null;
+let recordingFailure = null;
 const writers = new Map();
 let micAudioContext = null;
 let micAnimation = null;
@@ -62,6 +63,16 @@ var endTime = undefined;
 var notifications_flag = true;
 var invalidStop = undefined;
 var bState = undefined;
+
+function reportRecordingFailure(source, error) {
+    if (!isRecording || stopping || recordingFailure) return;
+    recordingFailure = { source, name: error?.name || 'Error',
+        message: error?.message || 'Запись неожиданно остановлена браузером',
+        elapsedSeconds: Math.floor((Date.now() - startTime.getTime()) / 1000) };
+    logClientAction({ action: 'Recording interrupted', ...recordingFailure });
+    chrome.storage.local.set({ recordingFailure }).catch(console.error);
+    stopRecord().catch(console.error);
+}
 
 async function need_init() {
     console.log((await chrome.storage.local.get("session_status"))["session_status"]);
@@ -193,7 +204,7 @@ function updateMicFill(level) {
 }
 
 async function sendButtonsStates(state) {
-    if (state === 'readyToUpload' && (!session_settings.server_connection && !session_settings.local_video_saving)) {
+    if (state === 'readyToUpload' && ((!session_settings.server_connection || session_settings.server_video_upload !== true) && !session_settings.local_video_saving)) {
         state = 'needPermissions';
         logClientAction({ action: "Update buttons states due to missing server connection" });
     }
@@ -450,7 +461,7 @@ async function getMediaDevices() {
 
                             if (!recorders.combined && !recorders.camera) return;
 
-                            if ((recorders.combined?.state || 'inactive') === 'inactive' && (recorders.camera?.state || 'inactive') === 'inactive') {
+                            if (!isRecording) {
                                 await sendButtonsStates('needPermissions');
                                 await showModalNotify(["Разрешение на камеру отозвано.",
                                     "Дайте доступ заново в расширении во всплывающем окне по кнопке Разрешения."], "Доступ к камере потерян!");
@@ -471,7 +482,7 @@ async function getMediaDevices() {
                         streamLossSource = 'screen';
                         logClientAction('Screen stream ended');
 
-                        if (!recorders.combined || recorders.combined.state === 'inactive') {
+                        if (!isRecording) {
                             await sendButtonsStates('needPermissions');
                             await showModalNotify(["Разрешение на захват экрана отозвано.", 
                                 "Дайте доступ заново в расширении во всплывающем окне по кнопке Разрешения."], "Доступ к экрану потерян!");
@@ -493,7 +504,7 @@ async function getMediaDevices() {
                             streamLossSource = 'microphone';
                             logClientAction('Microphone stream ended');
 
-                            if (!recorders.combined || recorders.combined.state === 'inactive') {
+                            if (!isRecording) {
                                 await sendButtonsStates('needPermissions');
                                 await showModalNotify(["Разрешение на микрофон отозвано.",
                                     "Дайте доступ заново в расширении во всплывающем окне по кнопке Разрешения."], "Доступ к микрофону потерян!");
@@ -553,11 +564,18 @@ async function getMediaDevices() {
 
                     writers.clear();
                     for (const type of ['combined', 'camera']) {
-                        if (!recorders[type]) continue;
-                        writers.set(type, attachRecorderWriter(recorders[type],
+                        const recorder = recorders[type];
+                        if (!recorder) continue;
+                        const source = type === 'combined' ? 'Экран' : 'Камера';
+                        recorder.addEventListener('error', event => reportRecordingFailure(source, event.error));
+                        recorder.addEventListener('stop', () => {
+                            if (!streamLossSource) reportRecordingFailure(source, new Error('MediaRecorder остановлен браузером'));
+                        });
+                        writers.set(type, attachRecorderWriter(recorder,
                             () => type === 'combined' ? combinedFileHandle : cameraFileHandle,
                             () => chrome.storage.local.set({ recording_end: new Date().toISOString() }),
-                            error => { logClientAction({ action: 'Recording write failed', error: error.message }); stopRecord().catch(console.error); }));
+                            error => reportRecordingFailure('Файл: ' + source, error),
+                            error => logClientAction({ action: 'Recording progress metadata failed', name: error.name })));
                     }
 
                     resolve();
@@ -791,8 +809,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         starting = true;
         try {
         await assertCanResume();
-        try { await checkPluginPolicy(session_settings, showModalNotify); }
-        catch (error) { if (!error.notified) await showModalNotify([error.message], 'Запись не начата'); throw error; }
         if (await need_init()) await checkAndCleanLogs();
 
         logClientAction({ action: "Receive message", messageType: "startRecording" });
@@ -819,17 +835,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
 
         if (await need_init()) {
-            if (session_settings.server_connection) {
-                await initSession(formData);
-            } else {
                 getBrowserFingerprint();
 
                 await chrome.storage.local.set({ 'lastRecordTime': new Date().toISOString() });
 
                 const sessionId = generateObjectId();
-                await chrome.storage.local.set({ 'sessionId': sessionId });
+                await chrome.storage.local.set({ sessionId, pendingSession: formDataToObject(formData) });
                 logClientAction({ action: "Generate session ID locally", sessionId });
-            }
         }
 
         await startRecord()
@@ -875,31 +887,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         logClientAction(`notifications_flag = ${notifications_flag}`)
     }
 });
-
-async function initSession(formData) {
-    getBrowserFingerprint()
-
-    try {
-        const result = await requestJSON(session_settings.server_url + '/start_session', {
-            method: 'POST', body: formData
-        });
-        const sessionId = result.id;
-        if (!/^[a-f0-9]{24}$/i.test(sessionId)) throw new Error('Сервер не вернул ID сессии');
-        await chrome.storage.local.set({ 'sessionId': sessionId });
-
-        console.log('sessionId успешно сохранён!');
-        logClientAction({ action: "Save session ID from server", sessionId });
-
-        await chrome.storage.local.set({
-            'lastRecordTime': new Date().toISOString()
-        });
-    } catch (error) {
-        console.error("Ошибка инициализации сессии", error);
-        await showModalNotify(["Ошибка инициализации сессии", error.message], "Ошибка")
-        logClientAction({ action: "Session initialization failed", error: error.message });
-        throw error;
-    }
-}
 
 function stopDuration(startTime) {
     const durationMs = new Date() - startTime;
@@ -974,6 +961,7 @@ async function finishRecord() {
             `Конец записи: ${getFormattedDateString(endTime)}`,
             `Длительность записи: ${duration}`,
         ];
+        if (recordingFailure) stats.unshift(`Причина остановки: ${recordingFailure.source}: ${recordingFailure.name}: ${recordingFailure.message} (${recordingFailure.elapsedSeconds} с)`);
         logClientAction(stats);
 
         cleanup();
@@ -984,7 +972,7 @@ async function finishRecord() {
             true
         );
 
-        if (session_settings.server_connection || session_settings.local_video_saving) {
+        if ((session_settings.server_connection && session_settings.server_video_upload === true) || session_settings.local_video_saving) {
             await showModalNotify(
                 ["Для скачивания записи необходимо нажать кнопку «Сохранить» во всплывающем окне расширения прокторинга."],
                 "Отправка записи",
@@ -1030,7 +1018,8 @@ async function startRecord() {
     logClientAction({ action: "Access root directory" });
 
     startTime = new Date();
-    await chrome.storage.local.set({"recording_start": startTime.toISOString()});
+    recordingFailure = null;
+    await chrome.storage.local.set({ recording_start: startTime.toISOString(), recordingFailure: null });
 
     let startRecordTime = getCurrentDateString(startTime);
 
@@ -1162,7 +1151,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         await uploadSession(session_settings);
         setReadyToUploadContainer(readyToUploadContainer, []);
         await sendButtonsStates('needPermissions');
-        await showModalNotify([session_settings.server_connection ? 'ВСЕ ВИДЕО УСПЕШНО ЗАГРУЖЕНЫ НА СЕРВЕР.' : 'Все видео сохранены на вашем компьютере.', 'Сохранение завершено. Можно закрыть эту вкладку.'], 'Сохранение завершено');
+        await showModalNotify([(session_settings.server_connection && session_settings.server_video_upload === true) ? 'ВСЕ ВИДЕО УСПЕШНО ЗАГРУЖЕНЫ НА СЕРВЕР.' : 'Все видео сохранены на вашем компьютере.', 'Сохранение завершено. Можно закрыть эту вкладку.'], 'Сохранение завершено');
     })().catch(async error => {
         await sendButtonsStates('failedUpload');
         await showModalNotify([error.message, 'Локальные файлы сохранены. Закрытие popup не прерывает отправку; не закрывайте эту вкладку.'], 'Не удалось завершить сохранение');

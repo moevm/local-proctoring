@@ -28,7 +28,7 @@ export async function fetchPluginPolicy(settings) {
     if (!settings.server_connection) return null;
     const { requestJSON } = await import('./upload.js');
     return requestJSON(settings.server_url.replace(/\/$/, '') + '/plugin_policy', {
-        cache: 'no-store', timeoutMs: 10000
+        cache: 'no-store', timeoutMs: 120000
     });
 }
 export async function checkPluginPolicy(settings, notify) {
